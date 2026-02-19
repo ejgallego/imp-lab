@@ -1,0 +1,14 @@
+name = "dap"
+version = "0.1.0"
+defaultTargets = ["dap", "dap-tests"]
+
+[[lean_lib]]
+name = "Dap"
+
+[[lean_exe]]
+name = "dap"
+root = "Main"
+
+[[lean_exe]]
+name = "dap-tests"
+root = "Test.Main"
