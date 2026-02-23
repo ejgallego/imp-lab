@@ -50,11 +50,11 @@ async function getLeanClient(sourceUri: vscode.Uri): Promise<LeanClientLike> {
 export class LeanRpcSession implements vscode.Disposable {
     private readonly client: LeanClientLike
     private readonly sourceUri: vscode.Uri
-    private readonly sessionId: number
+    private readonly sessionId: string
     private readonly keepAliveHandle: NodeJS.Timeout
     private disposed = false
 
-    private constructor(client: LeanClientLike, sourceUri: vscode.Uri, sessionId: number) {
+    private constructor(client: LeanClientLike, sourceUri: vscode.Uri, sessionId: string) {
         this.client = client
         this.sourceUri = sourceUri
         this.sessionId = sessionId
@@ -66,10 +66,11 @@ export class LeanRpcSession implements vscode.Disposable {
     static async connect(sourceUri: vscode.Uri): Promise<LeanRpcSession> {
         const client = await getLeanClient(sourceUri)
         const connected = await client.sendRequest('$/lean/rpc/connect', { uri: sourceUri.toString() })
-        const sessionId = Number(connected?.sessionId)
-        if (!Number.isFinite(sessionId)) {
+        const rawSessionId = connected?.sessionId
+        if (!(typeof rawSessionId === 'string' || typeof rawSessionId === 'number')) {
             throw new Error(`Invalid RPC connect response: ${JSON.stringify(connected)}`)
         }
+        const sessionId = String(rawSessionId)
         return new LeanRpcSession(client, sourceUri, sessionId)
     }
 
@@ -90,7 +91,7 @@ export class LeanRpcSession implements vscode.Disposable {
     }
 
     get id(): number {
-        return this.sessionId
+        return Number(this.sessionId)
     }
 
     private async keepAlive(): Promise<void> {

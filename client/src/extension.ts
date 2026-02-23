@@ -1,12 +1,40 @@
 import * as vscode from 'vscode'
-import { LeanToyDebugAdapter } from './adapter'
+import * as fs from 'node:fs'
+import * as path from 'node:path'
 
 class LeanToyDebugAdapterFactory implements vscode.DebugAdapterDescriptorFactory {
     constructor(private readonly output: vscode.OutputChannel) {}
 
-    createDebugAdapterDescriptor(_session: vscode.DebugSession): vscode.ProviderResult<vscode.DebugAdapterDescriptor> {
-        const adapter = new LeanToyDebugAdapter(this.output)
-        return new vscode.DebugAdapterInlineImplementation(adapter)
+    createDebugAdapterDescriptor(session: vscode.DebugSession): vscode.ProviderResult<vscode.DebugAdapterDescriptor> {
+        const command = this.resolveToyDapCommand(session)
+        const args = this.resolveToyDapArgs(session)
+        this.output.appendLine(`[lean-toy-dap] launching ${command}${args.length > 0 ? ` ${args.join(' ')}` : ''}`)
+        return new vscode.DebugAdapterExecutable(command, args)
+    }
+
+    private resolveToyDapCommand(session: vscode.DebugSession): string {
+        const configured = session.configuration?.toydapPath
+        if (typeof configured === 'string' && configured.trim().length > 0) {
+            return configured.trim()
+        }
+
+        const workspaceFolders = vscode.workspace.workspaceFolders ?? []
+        for (const folder of workspaceFolders) {
+            const candidate = path.join(folder.uri.fsPath, '.lake', 'build', 'bin', 'toydap')
+            if (fs.existsSync(candidate)) {
+                return candidate
+            }
+        }
+
+        return 'toydap'
+    }
+
+    private resolveToyDapArgs(session: vscode.DebugSession): string[] {
+        const raw = session.configuration?.toydapArgs
+        if (!Array.isArray(raw)) {
+            return []
+        }
+        return raw.map(value => String(value))
     }
 }
 
@@ -29,6 +57,9 @@ class LeanToyDebugConfigurationProvider implements vscode.DebugConfigurationProv
             if (active?.scheme === 'file') {
                 config.source = active.fsPath
             }
+        }
+        if (!config.entryPoint && !config.program && !config.programFile) {
+            config.entryPoint = 'mainProgram'
         }
         return config
     }

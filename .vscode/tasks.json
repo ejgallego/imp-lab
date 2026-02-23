@@ -1,0 +1,23 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Generate Toy DAP ProgramInfo",
+      "type": "process",
+      "command": "lake",
+      "args": [
+        "exe",
+        "dap-export",
+        "--decl",
+        "Dap.Examples.mainProgramInfo",
+        "--out",
+        ".dap/programInfo.generated.json"
+      ],
+      "group": "build",
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always"
+      }
+    }
+  ]
+}

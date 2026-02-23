@@ -1,0 +1,22 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Toy DAP (auto-export ProgramInfo)",
+      "type": "lean-toy-dap",
+      "request": "launch",
+      "source": "${workspaceFolder}/Dap/Examples.lean",
+      "programInfoFile": "${workspaceFolder}/.dap/programInfo.generated.json",
+      "stopOnEntry": true,
+      "preLaunchTask": "Generate Toy DAP ProgramInfo"
+    },
+    {
+      "name": "Toy DAP (entryPoint fallback)",
+      "type": "lean-toy-dap",
+      "request": "launch",
+      "source": "${file}",
+      "entryPoint": "mainProgram",
+      "stopOnEntry": true
+    }
+  ]
+}

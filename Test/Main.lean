@@ -15,6 +15,12 @@ def assertSomeEq [BEq α] [ToString α] (label : String) (actual : Option α) (e
   | some value => assertEq label value expected
   | none => throw <| IO.userError s!"{label}: expected `some {expected}`, got `none`"
 
+def assertTrue (label : String) (condition : Bool) : IO Unit := do
+  if condition then
+    pure ()
+  else
+    throw <| IO.userError s!"{label}: expected condition to hold"
+
 def testRunProgram : IO Unit := do
   let program : Program :=
     #[
@@ -134,6 +140,31 @@ def testDebugSessionStepBack : IO Unit := do
     assertEq "stepBack reason" reason .step
     assertEq "stepBack cursor" backward.cursor 0
 
+def testDslProgram : IO Unit := do
+  let program : Program := dap%[
+    let x := 6,
+    let y := 7,
+    let z := add x y
+  ]
+  match run program with
+  | .error err =>
+    throw <| IO.userError s!"testDslProgram failed: {err}"
+  | .ok ctx =>
+    assertSomeEq "dsl result" (ctx.lookup? "z") 13
+
+def testDslProgramInfo : IO Unit := do
+  let info : ProgramInfo := dapInfo%[
+    let a := 1,
+    let b := 2,
+    let c := mul a b
+  ]
+  assertEq "programInfo size" info.program.size 3
+  assertEq "programInfo located size" info.located.size 3
+  let line0 := (info.located[0]?.map (·.span.startLine)).getD 0
+  assertSomeEq "line maps to first stmt" (info.lineToStmtIdx? line0) 0
+  assertTrue "statement spans have valid line range"
+    (info.located.all fun located => located.span.startLine ≤ located.span.endLine)
+
 end Dap.Tests
 
 def main : IO Unit := do
@@ -144,4 +175,6 @@ def main : IO Unit := do
   Dap.Tests.testWidgetProps
   Dap.Tests.testDebugSessionContinueAndBreakpoints
   Dap.Tests.testDebugSessionStepBack
+  Dap.Tests.testDslProgram
+  Dap.Tests.testDslProgramInfo
   IO.println "All tests passed."

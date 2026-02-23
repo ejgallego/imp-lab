@@ -62,6 +62,10 @@ function normalizeStoppedReason(reason: string): 'entry' | 'step' | 'breakpoint'
     }
 }
 
+function escapeRegExp(text: string): string {
+    return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
 export class LeanToyDebugAdapter implements vscode.DebugAdapter {
     private readonly emitter = new vscode.EventEmitter<any>()
     readonly onDidSendMessage = this.emitter.event
@@ -137,7 +141,7 @@ export class LeanToyDebugAdapter implements vscode.DebugAdapter {
         throw new Error("Missing launch field 'source' and no active file editor available")
     }
 
-    private async readProgram(args: any): Promise<unknown[]> {
+    private async readProgram(args: any): Promise<unknown[] | undefined> {
         if (Array.isArray(args?.program)) {
             return args.program
         }
@@ -150,7 +154,38 @@ export class LeanToyDebugAdapter implements vscode.DebugAdapter {
             }
             return parsed
         }
-        throw new Error("Launch requires either 'program' (inline JSON array) or 'programFile'")
+        return undefined
+    }
+
+    private async resolveLaunchPosition(
+        sourcePath: string,
+        entryPoint: string,
+    ): Promise<{ line: number; character: number }> {
+        const sourceUri = vscode.Uri.file(sourcePath)
+        const active = vscode.window.activeTextEditor
+        const doc =
+            active && active.document.uri.toString() === sourceUri.toString()
+                ? active.document
+                : await vscode.workspace.openTextDocument(sourceUri)
+
+        const entrySimple = entryPoint.split('.').filter(part => part.length > 0).at(-1) ?? entryPoint
+        const declPattern = new RegExp(`^\\s*(def|abbrev)\\s+${escapeRegExp(entrySimple)}\\b`)
+        for (let line = 0; line < doc.lineCount; line++) {
+            const text = doc.lineAt(line).text
+            if (declPattern.test(text)) {
+                const character = Math.max(text.indexOf(entrySimple), 0)
+                return { line, character }
+            }
+        }
+
+        if (active && active.document.uri.toString() === sourceUri.toString()) {
+            const pos = active.selection.active
+            return { line: pos.line, character: pos.character }
+        }
+
+        const line = Math.max(doc.lineCount - 1, 0)
+        const character = doc.lineAt(line).text.length
+        return { line, character }
     }
 
     private async callLean<T>(method: string, params: unknown): Promise<T> {
@@ -193,17 +228,32 @@ export class LeanToyDebugAdapter implements vscode.DebugAdapter {
         const sourcePath = this.ensureSourcePath(args)
         const program = await this.readProgram(args)
         const stopOnEntry = args?.stopOnEntry !== false
+        const entryPoint =
+            typeof args?.entryPoint === 'string' && args.entryPoint.trim().length > 0
+                ? args.entryPoint.trim()
+                : 'mainProgram'
+        const position = await this.resolveLaunchPosition(sourcePath, entryPoint)
 
         this.sourcePath = sourcePath
         this.rpcSession?.dispose()
         this.rpcSession = await LeanRpcSession.connect(vscode.Uri.file(sourcePath))
-
-        await this.callLean('Dap.Server.dapInitialize', {})
-        const launch = await this.callLean<LaunchResponse>('Dap.Server.dapLaunch', {
-            program,
-            stopOnEntry,
-            breakpoints: this.pendingBreakpoints,
-        })
+        this.output.appendLine(
+            `[lean-toy-dap] launch source=${sourcePath} entry=${entryPoint} line=${position.line + 1}`,
+        )
+        const launch =
+            program !== undefined
+                ? await this.callLean<LaunchResponse>('Dap.Server.dapLaunch', {
+                      program,
+                      stopOnEntry,
+                      breakpoints: this.pendingBreakpoints,
+                  })
+                : await this.callLean<LaunchResponse>('Dap.Server.dapLaunchMain', {
+                      entryPoint,
+                      line: position.line,
+                      character: position.character,
+                      stopOnEntry,
+                      breakpoints: this.pendingBreakpoints,
+                  })
 
         this.dapSessionId = launch.sessionId
         this.sendResponse(request)

@@ -1,0 +1,138 @@
+{
+  "program": [
+    {
+      "rhs": {
+        "const": {
+          "value": 6
+        }
+      },
+      "dest": "x"
+    },
+    {
+      "rhs": {
+        "const": {
+          "value": 3
+        }
+      },
+      "dest": "y"
+    },
+    {
+      "rhs": {
+        "bin": {
+          "rhs": "y",
+          "op": "add",
+          "lhs": "x"
+        }
+      },
+      "dest": "sum"
+    },
+    {
+      "rhs": {
+        "bin": {
+          "rhs": "y",
+          "op": "mul",
+          "lhs": "sum"
+        }
+      },
+      "dest": "prod"
+    },
+    {
+      "rhs": {
+        "bin": {
+          "rhs": "x",
+          "op": "div",
+          "lhs": "prod"
+        }
+      },
+      "dest": "quot"
+    }
+  ],
+  "located": [
+    {
+      "stmt": {
+        "rhs": {
+          "const": {
+            "value": 6
+          }
+        },
+        "dest": "x"
+      },
+      "span": {
+        "startLine": 10,
+        "startColumn": 2,
+        "endLine": 10,
+        "endColumn": 12
+      }
+    },
+    {
+      "stmt": {
+        "rhs": {
+          "const": {
+            "value": 3
+          }
+        },
+        "dest": "y"
+      },
+      "span": {
+        "startLine": 11,
+        "startColumn": 2,
+        "endLine": 11,
+        "endColumn": 12
+      }
+    },
+    {
+      "stmt": {
+        "rhs": {
+          "bin": {
+            "rhs": "y",
+            "op": "add",
+            "lhs": "x"
+          }
+        },
+        "dest": "sum"
+      },
+      "span": {
+        "startLine": 12,
+        "startColumn": 2,
+        "endLine": 12,
+        "endColumn": 20
+      }
+    },
+    {
+      "stmt": {
+        "rhs": {
+          "bin": {
+            "rhs": "y",
+            "op": "mul",
+            "lhs": "sum"
+          }
+        },
+        "dest": "prod"
+      },
+      "span": {
+        "startLine": 13,
+        "startColumn": 2,
+        "endLine": 13,
+        "endColumn": 23
+      }
+    },
+    {
+      "stmt": {
+        "rhs": {
+          "bin": {
+            "rhs": "x",
+            "op": "div",
+            "lhs": "prod"
+          }
+        },
+        "dest": "quot"
+      },
+      "span": {
+        "startLine": 14,
+        "startColumn": 2,
+        "endLine": 14,
+        "endColumn": 24
+      }
+    }
+  ]
+}

@@ -1,7 +1,9 @@
 import Dap.Syntax
+import Dap.Surface
 import Dap.Eval
 import Dap.Trace
 import Dap.DebugModel
+import Dap.Export
 import Dap.Server
 import Dap.Widget
 import Dap.Examples

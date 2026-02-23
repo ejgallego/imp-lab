@@ -46,6 +46,14 @@ structure LaunchParams where
   breakpoints : Array Nat := #[]
   deriving Inhabited, Repr, FromJson, ToJson
 
+structure LaunchMainParams where
+  entryPoint : String := "mainProgram"
+  line : Nat := 0
+  character : Nat := 0
+  stopOnEntry : Bool := true
+  breakpoints : Array Nat := #[]
+  deriving Inhabited, Repr, FromJson, ToJson
+
 structure LaunchResponse where
   sessionId : Nat
   threadId : Nat
@@ -159,6 +167,157 @@ private def currentFrameName (session : DebugSession) : String :=
   | some stmt => toString stmt
   | none => "<terminated>"
 
+private def parseDeclName? (raw : String) : Option Name :=
+  let parts := raw.trimAscii.toString.splitOn "." |>.filter (· != "")
+  match parts with
+  | [] => none
+  | _ =>
+    some <| parts.foldl Name.str Name.anonymous
+
+private def isUnqualifiedName (n : Name) : Bool :=
+  match n with
+  | .str .anonymous _ => true
+  | .num .anonymous _ => true
+  | _ => false
+
+private def candidateEntryNames (moduleName entryName : Name) : Array Name :=
+  if isUnqualifiedName entryName then
+    #[entryName, moduleName ++ entryName]
+  else
+    #[entryName]
+
+private def stringLit? (e : Expr) : Option String :=
+  match e with
+  | .lit (.strVal s) => some s
+  | _ => none
+
+private def natLit? (e : Expr) : Option Nat :=
+  match e with
+  | .lit (.natVal n) => some n
+  | _ => none
+
+private def decodeBinOpExpr? (e : Expr) : Lean.MetaM (Option BinOp) := do
+  let e ← Lean.Meta.whnf e
+  match e.getAppFn with
+  | .const ``Dap.BinOp.add _ => pure (some .add)
+  | .const ``Dap.BinOp.sub _ => pure (some .sub)
+  | .const ``Dap.BinOp.mul _ => pure (some .mul)
+  | .const ``Dap.BinOp.div _ => pure (some .div)
+  | _ => pure none
+
+private def decodeIntExpr? (e : Expr) : Lean.MetaM (Option Int) := do
+  let e ← Lean.Meta.whnf e
+  let args := e.getAppArgs
+  match e.getAppFn with
+  | .const ``Int.ofNat _ =>
+    if h : args.size = 1 then
+      pure <| (natLit? args[0]).map Int.ofNat
+    else
+      pure none
+  | .const ``Int.negSucc _ =>
+    if h : args.size = 1 then
+      pure <| (natLit? args[0]).map Int.negSucc
+    else
+      pure none
+  | _ => pure none
+
+private def decodeRhsExpr? (e : Expr) : Lean.MetaM (Option Rhs) := do
+  let e ← Lean.Meta.whnf e
+  let args := e.getAppArgs
+  match e.getAppFn with
+  | .const ``Dap.Rhs.const _ =>
+    if h : args.size = 1 then
+      return (← decodeIntExpr? args[0]).map Rhs.const
+    else
+      pure none
+  | .const ``Dap.Rhs.bin _ =>
+    if h : args.size = 3 then
+      let op? ← decodeBinOpExpr? args[0]
+      let lhs? := stringLit? args[1]
+      let rhs? := stringLit? args[2]
+      pure <| do
+        let op ← op?
+        let lhs ← lhs?
+        let rhs ← rhs?
+        pure (Rhs.bin op lhs rhs)
+    else
+      pure none
+  | _ => pure none
+
+private def decodeStmtExpr? (e : Expr) : Lean.MetaM (Option Stmt) := do
+  let e ← Lean.Meta.whnf e
+  let args := e.getAppArgs
+  match e.getAppFn with
+  | .const ``Dap.Stmt.mk _ =>
+    if h : args.size = 2 then
+      let dest? := stringLit? args[0]
+      let rhs? ← decodeRhsExpr? args[1]
+      pure <| do
+        let dest ← dest?
+        let rhs ← rhs?
+        pure { dest, rhs }
+    else
+      pure none
+  | _ => pure none
+
+private def decodeStmtListExprAux? (fuel : Nat) (e : Expr) : Lean.MetaM (Option (List Stmt)) := do
+  if fuel = 0 then
+    pure none
+  else
+    let e ← Lean.Meta.whnf e
+    let args := e.getAppArgs
+    match e.getAppFn with
+    | .const ``List.nil _ =>
+      pure (some [])
+    | .const ``List.cons _ =>
+      if h : args.size = 3 then
+        let head? ← decodeStmtExpr? args[1]
+        let tail? ← decodeStmtListExprAux? (fuel - 1) args[2]
+        pure <| do
+          let head ← head?
+          let tail ← tail?
+          pure (head :: tail)
+      else
+        pure none
+    | _ =>
+      pure none
+
+private def decodeStmtListExpr? (e : Expr) : Lean.MetaM (Option (List Stmt)) :=
+  decodeStmtListExprAux? 100000 e
+
+private def decodeProgramExpr? (e : Expr) : Lean.MetaM (Option Program) := do
+  let e ← Lean.Meta.whnf e
+  let args := e.getAppArgs
+  match e.getAppFn with
+  | .const ``Array.mk _ =>
+    if h : args.size = 2 then
+      return (← decodeStmtListExpr? args[1]).map List.toArray
+    else
+      pure none
+  | .const ``List.toArray _ =>
+    if h : args.size = 2 then
+      return (← decodeStmtListExpr? args[1]).map List.toArray
+    else
+      pure none
+  | _ =>
+    pure none
+
+private def launchFromProgram (program : Program) (stopOnEntry : Bool) (breakpoints : Array Nat) :
+    RequestM LaunchResponse := do
+  let session ←
+    match DebugSession.fromProgram program with
+    | .ok session => pure session
+    | .error err => throw <| mkInvalidParams s!"Launch failed: {err}"
+  let session := session.setBreakpoints breakpoints
+  let (session, stopReason) := session.initialStop stopOnEntry
+  let sessionId ← allocateSession session
+  pure
+    { sessionId
+      threadId := 1
+      line := session.currentLine
+      stopReason := toString stopReason
+      terminated := session.atEnd || stopReason = .terminated }
+
 @[server_rpc_method]
 def dapInitialize (_params : InitializeParams) : RequestM (RequestTask InitializeResponse) :=
   RequestM.pureTask do
@@ -166,20 +325,38 @@ def dapInitialize (_params : InitializeParams) : RequestM (RequestTask Initializ
 
 @[server_rpc_method]
 def dapLaunch (params : LaunchParams) : RequestM (RequestTask LaunchResponse) :=
-  RequestM.pureTask do
-    let session ←
-      match DebugSession.fromProgram params.program with
-      | .ok session => pure session
-      | .error err => throw <| mkInvalidParams s!"Launch failed: {err}"
-    let session := session.setBreakpoints params.breakpoints
-    let (session, stopReason) := session.initialStop params.stopOnEntry
-    let sessionId ← allocateSession session
-    pure
-      { sessionId
-        threadId := 1
-        line := session.currentLine
-        stopReason := toString stopReason
-        terminated := session.atEnd || stopReason = .terminated }
+  RequestM.pureTask <| launchFromProgram params.program params.stopOnEntry params.breakpoints
+
+@[server_rpc_method]
+def dapLaunchMain (params : LaunchMainParams) : RequestM (RequestTask LaunchResponse) := do
+  let declName ←
+    match parseDeclName? params.entryPoint with
+    | some declName => pure declName
+    | none => throw <| mkInvalidParams s!"Invalid entry point name: '{params.entryPoint}'"
+  let lspPos : Lsp.Position := { line := params.line, character := params.character }
+  let doc ← RequestM.readDoc
+  let candidates := candidateEntryNames doc.meta.mod declName
+  RequestM.withWaitFindSnapAtPos lspPos fun snap => do
+    let resolvedName? ←
+      RequestM.runCoreM snap do
+        let env ← getEnv
+        pure <| candidates.find? env.contains
+    let resolvedName ←
+      match resolvedName? with
+      | some name => pure name
+      | none =>
+        let attempted := String.intercalate ", " <| candidates.toList.map (fun n => s!"'{n}'")
+        throw <| mkInvalidParams
+          s!"Could not resolve entry point '{params.entryPoint}'. Tried: {attempted}"
+    let program ←
+      match ← RequestM.runTermElabM snap do
+        decodeProgramExpr? (mkConst resolvedName)
+      with
+      | some program => pure program
+      | none =>
+        throw <| mkInvalidParams
+          s!"Could not decode '{resolvedName}' as Dap.Program at {lspPos}"
+    launchFromProgram program params.stopOnEntry params.breakpoints
 
 @[server_rpc_method]
 def dapSetBreakpoints (params : SetBreakpointsParams) :

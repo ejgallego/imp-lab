@@ -1,23 +1,34 @@
 import Dap.Widget
+import Dap.Surface
+import Dap.Server
 
 namespace Dap.Examples
 
 open Dap
 
+def sampleProgramInfo : ProgramInfo := dapInfo%[
+  let x := 6,
+  let y := 3,
+  let z := 4,
+  let sum := add x y,
+  let prod := mul sum y,
+  let quot := div prod x
+]
+
+def mainProgram : Program :=
+  sampleProgramInfo
+
+def mainProgramInfo : ProgramInfo :=
+  sampleProgramInfo
+
 def sampleProgram : Program :=
-  #[
-    Stmt.letConst "x" 6,
-    Stmt.letConst "y" 3,
-    Stmt.letBin "sum" .add "x" "y",
-    Stmt.letBin "prod" .mul "sum" "y",
-    Stmt.letBin "quot" .div "prod" "x"
-  ]
+  mainProgram
 
 def sampleFinalContext : Except EvalError Context :=
-  run sampleProgram
+  run mainProgram
 
 def sampleTraceProps : TraceWidgetProps :=
-  match traceWidgetProps sampleProgram with
+  match traceWidgetProps mainProgram with
   | .ok props => props
   | .error _ => default
 
