@@ -34,6 +34,38 @@ function groupProgramByFunction(program) {
   return groups;
 }
 
+function renderCodeTokens(text, keyPrefix) {
+  const tokens = text.match(/:=|[(),]|-?\\d+|[A-Za-z_][A-Za-z0-9_]*|\\s+|./g) || [];
+  let prevWord = '';
+  return tokens.map((token, i) => {
+    if (/^\\s+$/.test(token)) {
+      return token;
+    }
+
+    const style = {};
+    if (token === 'let' || token === 'return' || token === 'call' || token === 'def') {
+      style.color = '#0059b3';
+      style.fontWeight = 650;
+    } else if (token === 'add' || token === 'sub' || token === 'mul' || token === 'div') {
+      style.color = '#b26a00';
+      style.fontWeight = 600;
+    } else if (/^-?\\d+$/.test(token)) {
+      style.color = '#1b7f3b';
+      style.fontWeight = 600;
+    } else if (token === ':=' || token === ',' || token === '(' || token === ')') {
+      style.color = '#6a7280';
+    } else if (prevWord === 'call') {
+      style.color = '#0f766e';
+      style.fontWeight = 600;
+    }
+
+    if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(token)) {
+      prevWord = token;
+    }
+    return e('span', { key: keyPrefix + '-tok-' + String(i), style }, token);
+  });
+}
+
 export default function(props) {
   const states = props.states;
   const program = props.program;
@@ -59,7 +91,22 @@ export default function(props) {
             paddingBottom: '2px'
           }
         },
-        'def ' + group.functionName + '(...)'
+        [
+          e(
+            'span',
+            {
+              key: 'kw',
+              style: { color: '#0059b3', fontWeight: 700 }
+            },
+            'def '
+          ),
+          e(
+            'span',
+            { key: 'name', style: { color: '#111827', fontWeight: 700 } },
+            group.functionName
+          ),
+          e('span', { key: 'args', style: { color: '#6a7280' } }, '(...)')
+        ]
       ),
       e(
         'ol',
@@ -76,10 +123,18 @@ export default function(props) {
                     : 'transparent',
                 borderRadius: '4px',
                 padding: '2px 4px 2px 10px',
-                marginBottom: '2px'
+                marginBottom: '2px',
+                whiteSpace: 'pre'
               }
             },
-            '[L' + String(line.sourceLine) + '] ' + String(line.stmtLine) + '  ' + line.text
+            [
+              e(
+                'span',
+                { key: 'prefix', style: { color: '#6a7280' } },
+                '[L' + String(line.sourceLine) + '] ' + String(line.stmtLine) + '  '
+              ),
+              ...renderCodeTokens(line.text, 'line-' + String(lineIdx))
+            ]
           )
         )
       )
