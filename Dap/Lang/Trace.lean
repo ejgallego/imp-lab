@@ -5,6 +5,7 @@ Author: Emilio J. Gallego Arias
 -/
 
 import Dap.Lang.Eval
+import Dap.Lang.History
 
 namespace Dap
 
@@ -55,37 +56,28 @@ def ofProgram (program : Program) : Except EvalError Explorer := do
   pure (ofTrace trace)
 
 def maxCursor (explorer : Explorer) : Nat :=
-  explorer.trace.states.size - 1
+  History.maxCursor explorer.trace.states
 
 def normalized (explorer : Explorer) : Explorer :=
-  { explorer with cursor := min explorer.cursor explorer.maxCursor }
+  { explorer with cursor := History.normalizeCursor explorer.trace.states explorer.cursor }
 
 def current? (explorer : Explorer) : Option Context :=
-  let explorer := explorer.normalized
-  explorer.trace.states[explorer.cursor]?
+  History.current? explorer.trace.states explorer.cursor
 
 def hasPrev (explorer : Explorer) : Bool :=
-  explorer.cursor > 0
+  History.hasPrev explorer.trace.states explorer.cursor
 
 def hasNext (explorer : Explorer) : Bool :=
-  let explorer := explorer.normalized
-  explorer.cursor + 1 < explorer.trace.states.size
+  History.hasNext explorer.trace.states explorer.cursor
 
 def back (explorer : Explorer) : Explorer :=
-  if explorer.hasPrev then
-    { explorer with cursor := explorer.cursor - 1 }
-  else
-    explorer
+  { explorer with cursor := History.backCursor explorer.trace.states explorer.cursor }
 
 def forward (explorer : Explorer) : Explorer :=
-  let explorer := explorer.normalized
-  if explorer.hasNext then
-    { explorer with cursor := explorer.cursor + 1 }
-  else
-    explorer
+  { explorer with cursor := History.forwardCursor explorer.trace.states explorer.cursor }
 
 def jump (explorer : Explorer) (cursor : Nat) : Explorer :=
-  { explorer with cursor := min cursor explorer.maxCursor }
+  { explorer with cursor := History.jumpCursor explorer.trace.states cursor }
 
 end Explorer
 

@@ -7,6 +7,7 @@ Author: Emilio J. Gallego Arias
 import Dap.Lang.Ast
 import Dap.Lang.Dsl
 import Dap.Lang.Eval
+import Dap.Lang.History
 import Dap.Lang.Trace
 import Dap.DAP.Session
 import Dap.DAP.Core

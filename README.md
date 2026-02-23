@@ -13,6 +13,7 @@ Lean 4 toy project for:
 - `Dap/Lang/Ast.lean`: core AST (`Program` is a list of `let` statements).
 - `Dap/Lang/Dsl.lean`: DSL syntax/macros (`dap%[...]`) + infotree metadata.
 - `Dap/Lang/Eval.lean`: environment, small-step semantics, and full program runner.
+- `Dap/Lang/History.lean`: shared cursor/history navigation helpers.
 - `Dap/Lang/Trace.lean`: execution trace and navigation API (`Explorer`).
 - `Dap/Lang/Examples.lean`: sample program and precomputed widget props.
 - `Dap/DAP/Session.lean`: pure debugger session model (breakpoints, continue, next, stepBack).

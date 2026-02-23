@@ -55,6 +55,15 @@ def testUnboundVariable : IO Unit := do
   | .error err =>
     assertEq "unbound variable error" err (.unboundVar "x")
 
+def testHistoryCursorHelpers : IO Unit := do
+  let items : Array Int := #[10, 20, 30]
+  assertEq "history maxCursor" (History.maxCursor items) 2
+  assertEq "history normalize clamps" (History.normalizeCursor items 99) 2
+  assertSomeEq "history current? uses normalized cursor" (History.current? items 99) 30
+  assertEq "history back at zero stays zero" (History.backCursor items 0) 0
+  assertEq "history forward at end stays end" (History.forwardCursor items 99) 2
+  assertEq "history jump clamps" (History.jumpCursor items 100) 2
+
 def testTraceShape : IO Unit := do
   let program : Program :=
     #[
@@ -158,6 +167,14 @@ def testDebugSessionStepBack : IO Unit := do
     let (backward, reason) := forwarded.stepBack
     assertEq "stepBack reason" reason .step
     assertEq "stepBack cursor" backward.cursor 0
+    let (replayed, replayReason) ←
+      match backward.next with
+      | .ok value => pure value
+      | .error err =>
+        throw <| IO.userError s!"testDebugSessionStepBack replay next failed: {err}"
+    assertEq "stepBack replay cursor" replayed.cursor forwarded.cursor
+    assertEq "stepBack replay reason" replayReason .step
+    assertEq "stepBack replay current pc" replayed.currentPc forwarded.currentPc
 
 def testDslProgram : IO Unit := do
   let program : Program := dap%[
@@ -347,6 +364,7 @@ end Dap.Tests
 def main : IO Unit := do
   Dap.Tests.testRunProgram
   Dap.Tests.testUnboundVariable
+  Dap.Tests.testHistoryCursorHelpers
   Dap.Tests.testTraceShape
   Dap.Tests.testExplorerNavigation
   Dap.Tests.testWidgetProps

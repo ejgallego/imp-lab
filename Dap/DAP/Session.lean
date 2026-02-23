@@ -5,6 +5,7 @@ Author: Emilio J. Gallego Arias
 -/
 
 import Dap.Lang.Eval
+import Dap.Lang.History
 
 namespace Dap
 
@@ -37,14 +38,13 @@ def fromProgram (program : Program) : Except EvalError DebugSession := do
   pure { program }
 
 def maxCursor (session : DebugSession) : Nat :=
-  session.history.size - 1
+  History.maxCursor session.history
 
 def normalize (session : DebugSession) : DebugSession :=
-  { session with cursor := min session.cursor session.maxCursor }
+  { session with cursor := History.normalizeCursor session.history session.cursor }
 
 def current? (session : DebugSession) : Option Context :=
-  let session := session.normalize
-  session.history[session.cursor]?
+  History.current? session.history session.cursor
 
 def currentPc (session : DebugSession) : Nat :=
   (session.current?.map (·.pc)).getD 0
@@ -92,8 +92,8 @@ def bindings (session : DebugSession) : Array (Var × Value) :=
 
 def next (session : DebugSession) : Except EvalError (DebugSession × StopReason) := do
   let session := session.normalize
-  if session.cursor + 1 < session.history.size then
-    let next := { session with cursor := session.cursor + 1 }
+  if History.hasNext session.history session.cursor then
+    let next := { session with cursor := History.forwardCursor session.history session.cursor }
     if next.atEnd then
       pure (next, .terminated)
     else
@@ -111,7 +111,7 @@ def next (session : DebugSession) : Except EvalError (DebugSession × StopReason
         pure (session, .terminated)
       | some nextCtx =>
         let history := session.history.push nextCtx
-        let nextSession := { session with history, cursor := session.cursor + 1 }
+        let nextSession := { session with history, cursor := History.forwardCursor history session.cursor }
         if nextSession.atEnd then
           pure (nextSession, .terminated)
         else
@@ -119,10 +119,10 @@ def next (session : DebugSession) : Except EvalError (DebugSession × StopReason
 
 def stepBack (session : DebugSession) : DebugSession × StopReason :=
   let session := session.normalize
-  if session.cursor = 0 then
+  if !History.hasPrev session.history session.cursor then
     (session, .pause)
   else
-    ({ session with cursor := session.cursor - 1 }, .step)
+    ({ session with cursor := History.backCursor session.history session.cursor }, .step)
 
 def continueExecution (session : DebugSession) : Except EvalError (DebugSession × StopReason) := do
   let session := session.normalize
