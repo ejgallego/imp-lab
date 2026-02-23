@@ -6,7 +6,7 @@ Author: Emilio J. Gallego Arias
 
 import Lean
 import Dap.Debugger.Core
-import Dap.DAP.Resolve
+import Dap.DAP.Launch
 
 open Lean Lean.Server
 
@@ -99,218 +99,6 @@ private def runCoreResult (result : Except String α) : RequestM α :=
 private def updateStore (store : SessionStore) : IO Unit :=
   dapSessionStoreRef.set store
 
-private def stringLit? (e : Expr) : Option String :=
-  match e with
-  | .lit (.strVal s) => some s
-  | _ => none
-
-private def natLit? (e : Expr) : Option Nat :=
-  match e with
-  | .lit (.natVal n) => some n
-  | _ => none
-
-private def decodeBinOpExpr? (e : Expr) : Lean.MetaM (Option BinOp) := do
-  let e ← Lean.Meta.whnf e
-  match e.getAppFn with
-  | .const ``Dap.BinOp.add _ => pure (some .add)
-  | .const ``Dap.BinOp.sub _ => pure (some .sub)
-  | .const ``Dap.BinOp.mul _ => pure (some .mul)
-  | .const ``Dap.BinOp.div _ => pure (some .div)
-  | _ => pure none
-
-private def decodeIntExpr? (e : Expr) : Lean.MetaM (Option Int) := do
-  let e ← Lean.Meta.whnf e
-  let args := e.getAppArgs
-  match e.getAppFn with
-  | .const ``Int.ofNat _ =>
-    if h : args.size = 1 then
-      pure <| (natLit? args[0]).map Int.ofNat
-    else
-      pure none
-  | .const ``Int.negSucc _ =>
-    if h : args.size = 1 then
-      pure <| (natLit? args[0]).map Int.negSucc
-    else
-      pure none
-  | _ => pure none
-
-private def decodeRhsExpr? (e : Expr) : Lean.MetaM (Option Rhs) := do
-  let e ← Lean.Meta.whnf e
-  let args := e.getAppArgs
-  match e.getAppFn with
-  | .const ``Dap.Rhs.const _ =>
-    if h : args.size = 1 then
-      return (← decodeIntExpr? args[0]).map Rhs.const
-    else
-      pure none
-  | .const ``Dap.Rhs.bin _ =>
-    if h : args.size = 3 then
-      let op? ← decodeBinOpExpr? args[0]
-      let lhs? := stringLit? args[1]
-      let rhs? := stringLit? args[2]
-      pure <| do
-        let op ← op?
-        let lhs ← lhs?
-        let rhs ← rhs?
-        pure (Rhs.bin op lhs rhs)
-    else
-      pure none
-  | _ => pure none
-
-private def decodeStmtExpr? (e : Expr) : Lean.MetaM (Option Stmt) := do
-  let e ← Lean.Meta.whnf e
-  let args := e.getAppArgs
-  match e.getAppFn with
-  | .const ``Dap.Stmt.mk _ =>
-    if h : args.size = 2 then
-      let dest? := stringLit? args[0]
-      let rhs? ← decodeRhsExpr? args[1]
-      pure <| do
-        let dest ← dest?
-        let rhs ← rhs?
-        pure { dest, rhs }
-    else
-      pure none
-  | _ => pure none
-
-private def decodeStmtSpanExpr? (e : Expr) : Lean.MetaM (Option StmtSpan) := do
-  let e ← Lean.Meta.whnf e
-  let args := e.getAppArgs
-  match e.getAppFn with
-  | .const ``Dap.StmtSpan.mk _ =>
-    if h : args.size = 4 then
-      let startLine? := natLit? args[0]
-      let startColumn? := natLit? args[1]
-      let endLine? := natLit? args[2]
-      let endColumn? := natLit? args[3]
-      pure <| do
-        let startLine ← startLine?
-        let startColumn ← startColumn?
-        let endLine ← endLine?
-        let endColumn ← endColumn?
-        pure { startLine, startColumn, endLine, endColumn }
-    else
-      pure none
-  | _ => pure none
-
-private def decodeLocatedStmtExpr? (e : Expr) : Lean.MetaM (Option LocatedStmt) := do
-  let e ← Lean.Meta.whnf e
-  let args := e.getAppArgs
-  match e.getAppFn with
-  | .const ``Dap.LocatedStmt.mk _ =>
-    if h : args.size = 2 then
-      let stmt? ← decodeStmtExpr? args[0]
-      let span? ← decodeStmtSpanExpr? args[1]
-      pure <| do
-        let stmt ← stmt?
-        let span ← span?
-        pure { stmt, span }
-    else
-      pure none
-  | _ => pure none
-
-private def decodeStmtListExprAux? (fuel : Nat) (e : Expr) : Lean.MetaM (Option (List Stmt)) := do
-  if fuel = 0 then
-    pure none
-  else
-    let e ← Lean.Meta.whnf e
-    let args := e.getAppArgs
-    match e.getAppFn with
-    | .const ``List.nil _ =>
-      pure (some [])
-    | .const ``List.cons _ =>
-      if h : args.size = 3 then
-        let head? ← decodeStmtExpr? args[1]
-        let tail? ← decodeStmtListExprAux? (fuel - 1) args[2]
-        pure <| do
-          let head ← head?
-          let tail ← tail?
-          pure (head :: tail)
-      else
-        pure none
-    | _ =>
-      pure none
-
-private def decodeStmtListExpr? (e : Expr) : Lean.MetaM (Option (List Stmt)) :=
-  decodeStmtListExprAux? 100000 e
-
-private def decodeLocatedStmtListExprAux? (fuel : Nat) (e : Expr) :
-    Lean.MetaM (Option (List LocatedStmt)) := do
-  if fuel = 0 then
-    pure none
-  else
-    let e ← Lean.Meta.whnf e
-    let args := e.getAppArgs
-    match e.getAppFn with
-    | .const ``List.nil _ =>
-      pure (some [])
-    | .const ``List.cons _ =>
-      if h : args.size = 3 then
-        let head? ← decodeLocatedStmtExpr? args[1]
-        let tail? ← decodeLocatedStmtListExprAux? (fuel - 1) args[2]
-        pure <| do
-          let head ← head?
-          let tail ← tail?
-          pure (head :: tail)
-      else
-        pure none
-    | _ =>
-      pure none
-
-private def decodeLocatedStmtListExpr? (e : Expr) : Lean.MetaM (Option (List LocatedStmt)) :=
-  decodeLocatedStmtListExprAux? 100000 e
-
-private def decodeProgramExpr? (e : Expr) : Lean.MetaM (Option Program) := do
-  let e ← Lean.Meta.whnf e
-  let args := e.getAppArgs
-  match e.getAppFn with
-  | .const ``Array.mk _ =>
-    if h : args.size = 2 then
-      return (← decodeStmtListExpr? args[1]).map List.toArray
-    else
-      pure none
-  | .const ``List.toArray _ =>
-    if h : args.size = 2 then
-      return (← decodeStmtListExpr? args[1]).map List.toArray
-    else
-      pure none
-  | _ =>
-    pure none
-
-private def decodeLocatedStmtArrayExpr? (e : Expr) : Lean.MetaM (Option (Array LocatedStmt)) := do
-  let e ← Lean.Meta.whnf e
-  let args := e.getAppArgs
-  match e.getAppFn with
-  | .const ``Array.mk _ =>
-    if h : args.size = 2 then
-      return (← decodeLocatedStmtListExpr? args[1]).map List.toArray
-    else
-      pure none
-  | .const ``List.toArray _ =>
-    if h : args.size = 2 then
-      return (← decodeLocatedStmtListExpr? args[1]).map List.toArray
-    else
-      pure none
-  | _ =>
-    pure none
-
-private def decodeProgramInfoExpr? (e : Expr) : Lean.MetaM (Option ProgramInfo) := do
-  let e ← Lean.Meta.whnf e
-  let args := e.getAppArgs
-  match e.getAppFn with
-  | .const ``Dap.ProgramInfo.mk _ =>
-    if h : args.size = 2 then
-      let program? ← decodeProgramExpr? args[0]
-      let located? ← decodeLocatedStmtArrayExpr? args[1]
-      pure <| do
-        let program ← program?
-        let located ← located?
-        pure { program, located }
-    else
-      pure none
-  | _ =>
-    pure none
-
 private def launchFromProgram
     (program : Program)
     (stopOnEntry : Bool)
@@ -344,45 +132,23 @@ def dapLaunch (params : LaunchParams) : RequestM (RequestTask LaunchResponse) :=
 
 @[server_rpc_method]
 def dapLaunchMain (params : LaunchMainParams) : RequestM (RequestTask LaunchResponse) := do
-  let declName ←
-    match Dap.parseDeclName? params.entryPoint with
-    | some declName => pure declName
-    | none => throw <| mkInvalidParams s!"Invalid entry point name: '{params.entryPoint}'"
   let lspPos : Lsp.Position := { line := params.line, character := params.character }
   let doc ← RequestM.readDoc
-  let candidates := Dap.candidateDeclNames declName (moduleName? := some doc.meta.mod)
   RequestM.withWaitFindSnapAtPos lspPos fun snap => do
-    let resolvedName? ←
+    let launchProgramResult ←
       RequestM.runCoreM snap do
         let env ← getEnv
-        pure <| Dap.resolveFirstDecl? env candidates
-    let resolvedName ←
-      match resolvedName? with
-      | some name => pure name
-      | none =>
-        let attempted := Dap.renderCandidateDecls candidates
-        throw <| mkInvalidParams
-          s!"Could not resolve entry point '{params.entryPoint}'. Tried: {attempted}"
-    let programInfo? ←
-      RequestM.runTermElabM snap do
-        decodeProgramInfoExpr? (mkConst resolvedName)
-    match programInfo? with
-    | some rawInfo =>
-      let info ←
-        match rawInfo.validate with
-        | .ok info => pure info
-        | .error err => throw <| mkInvalidParams err
-      launchFromProgram info.program params.stopOnEntry params.breakpoints info.stmtSpans
-    | none =>
-      let program ←
-        match ← RequestM.runTermElabM snap do
-          decodeProgramExpr? (mkConst resolvedName)
-        with
-        | some program => pure program
-        | none =>
-          throw <| mkInvalidParams
-            s!"Could not decode '{resolvedName}' as Dap.ProgramInfo or Dap.Program at {lspPos}"
-      launchFromProgram program params.stopOnEntry params.breakpoints
+        pure <|
+          Dap.resolveLaunchProgramFromEnv
+            env
+            params.entryPoint
+            (moduleName? := some doc.meta.mod)
+    let launchProgram ← runCoreResult launchProgramResult
+    launchFromProgram
+      launchProgram.program
+      params.stopOnEntry
+      params.breakpoints
+      launchProgram.stmtSpans
 
 @[server_rpc_method]
 def dapSetBreakpoints (params : SetBreakpointsParams) :

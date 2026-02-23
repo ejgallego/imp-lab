@@ -7,7 +7,7 @@ Author: Emilio J. Gallego Arias
 import Lean
 import Lean.Data.Lsp.Communication
 import Dap.Debugger.Core
-import Dap.DAP.Resolve
+import Dap.DAP.Launch
 import examples.Main
 
 open Lean
@@ -21,10 +21,6 @@ structure AdapterState where
   pendingBreakpoints : Array Nat := #[]
   sourcePath? : Option String := none
   deriving Inhabited
-
-structure LaunchProgram where
-  program : Program
-  stmtSpans : Array StmtSpan := #[]
 
 structure DapRequest where
   seq : Nat
@@ -102,83 +98,32 @@ private def parseBreakpointLines (args : Json) : Array Nat :=
         if line > 0 then acc.push line else acc
       | none => acc
 
-private def spansFromProgramInfo (programInfo : ProgramInfo) : Array StmtSpan :=
-  programInfo.stmtSpans
-
-private unsafe def evalLaunchProgramFromDecl
-    (env : Environment) (opts : Options) (decl : Name) : Except String LaunchProgram := do
-  match env.evalConstCheck ProgramInfo opts ``Dap.ProgramInfo decl with
-  | .ok rawProgramInfo =>
-    let programInfo ← rawProgramInfo.validate
-    pure { program := programInfo.program, stmtSpans := spansFromProgramInfo programInfo }
-  | .error infoErr =>
-    match env.evalConstCheck Program opts ``Dap.Program decl with
-    | .ok program =>
-      pure { program, stmtSpans := #[] }
-    | .error programErr =>
-      throw s!"Declaration '{decl}' is neither Dap.ProgramInfo nor Dap.Program.\nProgramInfo error: {infoErr}\nProgram error: {programErr}"
-
 private def programFromEntryPoint (entryPoint : String) : IO LaunchProgram := do
   let sysroot ← Lean.findSysroot
   Lean.initSearchPath sysroot [System.FilePath.mk ".lake/build/lib/lean"]
-  let declName ←
-    match Dap.parseDeclName? entryPoint with
-    | some n => pure n
-    | none => throw <| IO.userError s!"Invalid entryPoint '{entryPoint}'"
   let env ← Dap.importProjectEnv
   let opts : Options := {}
-  let candidates := Dap.candidateDeclNames declName (moduleName? := some `Main)
-  let resolved? := Dap.resolveFirstDecl? env candidates
-  let resolved ←
-    match resolved? with
-    | some n => pure n
-    | none =>
-      let attempted := Dap.renderCandidateDecls candidates
-      throw <| IO.userError s!"Could not resolve entryPoint '{entryPoint}'. Tried: {attempted}"
-  match unsafe evalLaunchProgramFromDecl env opts resolved with
+  match Dap.resolveLaunchProgramFromEnv env entryPoint (moduleName? := some `Main) (opts := opts) with
   | .ok launchProgram => pure launchProgram
   | .error err => throw <| IO.userError err
-
-private def decodeProgram (json : Json) : Except String Program :=
-  match fromJson? json with
-  | .ok program => pure program
-  | .error err => throw s!"Invalid 'program' payload: {err}"
-
-private def decodeProgramInfo (json : Json) : Except String ProgramInfo :=
-  match (fromJson? json : Except String ProgramInfo) with
-  | .ok programInfo =>
-    match programInfo.validate with
-    | .ok info => pure info
-    | .error err => throw err
-  | .error err => throw s!"Invalid 'programInfo' payload: {err}"
-
-private def decodeLaunchProgram (json : Json) : Except String LaunchProgram :=
-  match decodeProgramInfo json with
-  | .ok programInfo =>
-    pure { program := programInfo.program, stmtSpans := spansFromProgramInfo programInfo }
-  | .error _ =>
-    match decodeProgram json with
-    | .ok program => pure { program }
-    | .error err =>
-      throw s!"Invalid program payload: {err}"
 
 private def readLaunchProgramFile (path : String) : IO LaunchProgram := do
   let raw ← IO.FS.readFile path
   let json ← IO.ofExcept (Json.parse raw)
-  match decodeLaunchProgram json with
+  match Dap.decodeLaunchProgramJson json with
   | .ok program => pure program
   | .error err => throw <| IO.userError s!"{err} (from '{path}')"
 
 private def resolveLaunchProgram (args : Json) : IO LaunchProgram := do
   if let some programInfoJson := (args.getObjVal? "programInfo").toOption then
-    match decodeProgramInfo programInfoJson with
+    match Dap.decodeProgramInfoJson programInfoJson with
     | .ok programInfo =>
-      pure { program := programInfo.program, stmtSpans := spansFromProgramInfo programInfo }
+      pure (LaunchProgram.ofProgramInfo programInfo)
     | .error err =>
       throw <| IO.userError err
   else if let some programJson := (args.getObjVal? "program").toOption then
-    match decodeProgram programJson with
-    | .ok program => pure { program }
+    match Dap.decodeProgramJson programJson with
+    | .ok program => pure (LaunchProgram.ofProgram program)
     | .error err => throw <| IO.userError err
   else if let some programInfoFile := (args.getObjValAs? String "programInfoFile").toOption then
     readLaunchProgramFile programInfoFile

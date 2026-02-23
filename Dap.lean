@@ -12,6 +12,7 @@ import Dap.Lang.Trace
 import Dap.Debugger.Session
 import Dap.Debugger.Core
 import Dap.DAP.Resolve
+import Dap.DAP.Launch
 import Dap.DAP.Export
 import Dap.DAP.Server
 import Dap.Widget.Types
