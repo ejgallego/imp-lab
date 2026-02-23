@@ -12,5 +12,6 @@ import Dap.DAP.Session
 import Dap.DAP.Core
 import Dap.DAP.Export
 import Dap.DAP.Server
+import Dap.Widget.Types
 import Dap.Widget.Server
 import Dap.Lang.Examples

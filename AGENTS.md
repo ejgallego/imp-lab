@@ -11,7 +11,7 @@ Primary surfaces:
 - Lean RPC debug service (`Dap/DAP/Server.lean`)
 - Standalone DAP adapter (`Dap/DAP/Stdio.lean`, `ToyDap.lean`)
 - VS Code client extension (`client/`)
-- Widget demo (`Dap/Widget/Server.lean`)
+- Widget demo (`Dap/Widget/Types.lean`, `Dap/Widget/Server.lean`)
 
 ## Build and test
 - `lake build`

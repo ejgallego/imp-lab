@@ -19,6 +19,7 @@ Lean 4 toy project for:
 - `Dap/DAP/Core.lean`: session store + DAP-shaped pure core operations.
 - `Dap/DAP/Server.lean`: Lean server RPC endpoints implementing DAP-like operations.
 - `Dap/DAP/Stdio.lean`: standalone DAP adapter implementation (native DAP protocol over stdio).
+- `Dap/Widget/Types.lean`: pure widget data model + trace-to-widget projection helpers.
 - `Dap/Widget/Server.lean`: widget props + `traceExplorerWidget`.
 - `Dap/DAP/Export.lean`: `dap-export` declaration loader/export logic.
 - `Test/Main.lean`: executable tests.
