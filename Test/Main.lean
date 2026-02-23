@@ -166,6 +166,39 @@ def testDslProgramInfo : IO Unit := do
   assertTrue "statement spans have valid line range"
     (info.located.all fun located => located.span.startLine ≤ located.span.endLine)
 
+private def expectCore (label : String) (result : Except String α) : IO α := do
+  match result with
+  | .ok value =>
+    pure value
+  | .error err =>
+    throw <| IO.userError s!"{label}: {err}"
+
+def testDebugCoreFlow : IO Unit := do
+  let program : Program := dap%[
+    let x := 5,
+    let y := 7,
+    let z := add x y
+  ]
+  let store0 : SessionStore := {}
+  let (store1, launch) ← expectCore "core launch" <| Dap.launchFromProgram store0 program false #[2]
+  assertEq "core launch stopReason" launch.stopReason "breakpoint"
+  assertEq "core launch line" launch.line 2
+  let sessionId := launch.sessionId
+  let vars1 ← expectCore "core vars" <| Dap.variables store1 sessionId 1
+  assertTrue "core vars contain x binding"
+    (vars1.variables.any fun v => v.name == "x" && v.value == "5")
+  let (store2, cont) ← expectCore "core continue" <| Dap.continueExecution store1 sessionId
+  assertEq "core continue terminated" cont.terminated true
+  assertEq "core continue stopReason" cont.stopReason "terminated"
+  let (store3, disconnected) := Dap.disconnect store2 sessionId
+  assertEq "core disconnect" disconnected true
+  let pauseAfterDisconnect := Dap.pause store3 sessionId
+  match pauseAfterDisconnect with
+  | .ok _ =>
+    throw <| IO.userError "core pause after disconnect should fail"
+  | .error _ =>
+    pure ()
+
 private def encodeDapRequest (seq : Nat) (command : String) (arguments : Json := Json.mkObj []) : String :=
   let payload := Json.mkObj
     [ ("seq", toJson seq),
@@ -224,5 +257,6 @@ def main : IO Unit := do
   Dap.Tests.testDebugSessionStepBack
   Dap.Tests.testDslProgram
   Dap.Tests.testDslProgramInfo
+  Dap.Tests.testDebugCoreFlow
   Dap.Tests.testToyDapProtocolSanity
   IO.println "All tests passed."

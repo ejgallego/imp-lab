@@ -1,6 +1,6 @@
 import Lean
 import Lean.Data.Lsp.Communication
-import Dap.DebugModel
+import Dap.DebugCore
 import Dap.Examples
 
 open Lean
@@ -9,9 +9,9 @@ namespace Dap.ToyDap
 
 structure AdapterState where
   nextSeq : Nat := 1
-  session? : Option DebugSession := none
+  core : SessionStore := {}
+  activeSessionId? : Option Nat := none
   pendingBreakpoints : Array Nat := #[]
-  stmtSpans : Array StmtSpan := #[]
   sourcePath? : Option String := none
   deriving Inhabited
 
@@ -24,19 +24,8 @@ structure DapRequest where
   command : String
   arguments : Json := Json.null
 
-private def currentFrameName (session : DebugSession) : String :=
-  let pc := session.currentPc
-  match session.trace.program[pc]? with
-  | some stmt => toString stmt
-  | none => "<terminated>"
-
-private def normalizedStoppedReason (reason : StopReason) : String :=
-  match reason with
-  | .entry => "entry"
-  | .step => "step"
-  | .breakpoint => "breakpoint"
-  | .pause => "pause"
-  | .terminated => "pause"
+private def normalizedStoppedReason (reason : String) : String :=
+  if reason = "terminated" then "pause" else reason
 
 private def decodeRequest? (payload : String) : Except String (Option DapRequest) := do
   let json ← Json.parse payload
@@ -87,12 +76,12 @@ private def sendEvent (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState)
       ("body", body) ]
 
 private def emitStopOrTerminate (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState)
-    (session : DebugSession) (reason : StopReason) : IO Unit := do
-  if session.atEnd || reason = .terminated then
+    (stopReason : String) (terminated : Bool) : IO Unit := do
+  if terminated || stopReason = "terminated" then
     sendEvent stdout stRef "terminated"
   else
     sendEvent stdout stRef "stopped" <| Json.mkObj
-      [ ("reason", toJson (normalizedStoppedReason reason)),
+      [ ("reason", toJson (normalizedStoppedReason stopReason)),
         ("threadId", toJson 1),
         ("allThreadsStopped", toJson true) ]
 
@@ -108,64 +97,6 @@ private def parseBreakpointLines (args : Json) : Array Nat :=
 
 private def spansFromProgramInfo (programInfo : ProgramInfo) : Array StmtSpan :=
   programInfo.located.map (·.span)
-
-private def sourceLineToStmtLine? (spans : Array StmtSpan) (line : Nat) : Option Nat :=
-  if spans.isEmpty then
-    none
-  else
-    let rec go (idx : Nat) : Option Nat :=
-      if h : idx < spans.size then
-        let span := spans[idx]
-        if span.startLine ≤ line && line ≤ span.endLine then
-          some (idx + 1)
-        else
-          go (idx + 1)
-      else
-        none
-    go 0
-
-private def stmtLineToSourceLine (spans : Array StmtSpan) (stmtLine : Nat) : Nat :=
-  if spans.isEmpty then
-    stmtLine
-  else
-    match spans[stmtLine - 1]? with
-    | some span => span.startLine
-    | none => stmtLine
-
-private def breakpointsFromRequested (programSize : Nat) (spans : Array StmtSpan) (lines : Array Nat) : Array Nat :=
-  lines.foldl
-    (init := #[])
-    (fun acc line =>
-      let stmtLine? :=
-        if spans.isEmpty then
-          if DebugSession.isValidBreakpointLine programSize line then some line else none
-        else
-          sourceLineToStmtLine? spans line
-      match stmtLine? with
-      | some stmtLine =>
-        if !acc.contains stmtLine then
-          acc.push stmtLine
-        else
-          acc
-      | none =>
-        acc)
-
-private def mkBreakpointResponseView (programSize : Nat) (spans : Array StmtSpan) (line : Nat) : Json :=
-  let stmtLine? :=
-    if spans.isEmpty then
-      if DebugSession.isValidBreakpointLine programSize line then some line else none
-    else
-      sourceLineToStmtLine? spans line
-  match stmtLine? with
-  | some _ =>
-    Json.mkObj [("line", toJson line), ("verified", toJson true)]
-  | none =>
-    let msg :=
-      if spans.isEmpty then
-        s!"Line {line} is outside the valid range 1..{programSize}"
-      else
-        s!"No statement maps to source line {line}"
-    Json.mkObj [("line", toJson line), ("verified", toJson false), ("message", toJson msg)]
 
 private def programFromEntryPoint? (entryPoint : String) : Option LaunchProgram :=
   let entryPoint := entryPoint.trimAscii.toString
@@ -232,6 +163,19 @@ private def sourceJson? (sourcePath? : Option String) : Option Json := do
   let name := (System.FilePath.mk sourcePath).fileName.getD sourcePath
   pure <| Json.mkObj [("name", toJson name), ("path", toJson sourcePath)]
 
+private def toBreakpointJson (view : BreakpointView) : Json :=
+  Json.mkObj <|
+    [ ("line", toJson view.line),
+      ("verified", toJson view.verified) ] ++
+    match view.message? with
+    | some msg => [("message", toJson msg)]
+    | none => []
+
+private def requireActiveSessionId (stRef : IO.Ref AdapterState) : IO Nat := do
+  let some sessionId := (← stRef.get).activeSessionId?
+    | throw <| IO.userError "No active DAP session. Launch first."
+  pure sessionId
+
 private def handleInitialize (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState)
     (req : DapRequest) : IO Unit := do
   sendResponse stdout stRef req <| Json.mkObj
@@ -247,28 +191,24 @@ private def handleLaunch (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState)
     | .obj _ => req.arguments
     | _ => Json.mkObj []
   let launchProgram ← resolveLaunchProgram args
-  let program := launchProgram.program
-  let stmtSpans := launchProgram.stmtSpans
   let stopOnEntry := (args.getObjValAs? Bool "stopOnEntry").toOption.getD true
   let sourcePath? := (args.getObjValAs? String "source").toOption
   let breakpoints := parseBreakpointLines args
-  let session ←
-    match DebugSession.fromProgram program with
-    | .ok session => pure session
-    | .error err => throw <| IO.userError s!"Launch failed: {err}"
   let pending := (← stRef.get).pendingBreakpoints
   let activeBreakpoints := if breakpoints.isEmpty then pending else breakpoints
-  let stmtBreakpoints := breakpointsFromRequested program.size stmtSpans activeBreakpoints
-  let session := session.setBreakpoints stmtBreakpoints
-  let (session, reason) := session.initialStop stopOnEntry
+  let st ← stRef.get
+  let (core, launch) ←
+    match Dap.launchFromProgram st.core launchProgram.program stopOnEntry activeBreakpoints launchProgram.stmtSpans with
+    | .ok value => pure value
+    | .error err => throw <| IO.userError err
   stRef.modify fun st =>
     { st with
-      session? := some session
+      core
+      activeSessionId? := some launch.sessionId
       pendingBreakpoints := activeBreakpoints
-      stmtSpans := stmtSpans
       sourcePath? := sourcePath? }
   sendResponse stdout stRef req
-  emitStopOrTerminate stdout stRef session reason
+  emitStopOrTerminate stdout stRef launch.stopReason launch.terminated
 
 private def handleSetBreakpoints (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState)
     (req : DapRequest) : IO Unit := do
@@ -279,28 +219,30 @@ private def handleSetBreakpoints (stdout : IO.FS.Stream) (stRef : IO.Ref Adapter
   let lines := parseBreakpointLines args
   stRef.modify fun st => { st with pendingBreakpoints := lines }
   let st ← stRef.get
-  match st.session? with
+  match st.activeSessionId? with
   | none =>
-    let fallbackSize := lines.foldl (init := 0) max
-    let breakpoints := lines.map (mkBreakpointResponseView fallbackSize st.stmtSpans)
-    sendResponse stdout stRef req <| Json.mkObj [("breakpoints", Json.arr breakpoints)]
-  | some session =>
-    let programSize := session.trace.program.size
-    let normalized := breakpointsFromRequested programSize st.stmtSpans lines
-    let session := { session with breakpoints := normalized }
-    stRef.modify fun st => { st with session? := some session }
-    let breakpoints := lines.map (mkBreakpointResponseView programSize st.stmtSpans)
-    sendResponse stdout stRef req <| Json.mkObj [("breakpoints", Json.arr breakpoints)]
+    let breakpoints := Json.arr <| lines.map fun line =>
+      Json.mkObj [("line", toJson line), ("verified", toJson true)]
+    sendResponse stdout stRef req <| Json.mkObj [("breakpoints", breakpoints)]
+  | some sessionId =>
+    let (core, response) ←
+      match Dap.setBreakpoints st.core sessionId lines with
+      | .ok value => pure value
+      | .error err => throw <| IO.userError err
+    stRef.modify fun st => { st with core }
+    let breakpoints := Json.arr <| response.breakpoints.map toBreakpointJson
+    sendResponse stdout stRef req <| Json.mkObj [("breakpoints", breakpoints)]
 
 private def handleThreads (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState)
     (req : DapRequest) : IO Unit := do
-  let threads := Json.arr #[Json.mkObj [("id", toJson 1), ("name", toJson "main")]]
-  sendResponse stdout stRef req <| Json.mkObj [("threads", threads)]
+  let threads := Dap.threads (← stRef.get).core
+  let payload := Json.arr <| threads.threads.map fun t =>
+    Json.mkObj [("id", toJson t.id), ("name", toJson t.name)]
+  sendResponse stdout stRef req <| Json.mkObj [("threads", payload)]
 
 private def handleStackTrace (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState)
     (req : DapRequest) : IO Unit := do
-  let some session := (← stRef.get).session?
-    | throw <| IO.userError "No active DAP session. Launch first."
+  let sessionId ← requireActiveSessionId stRef
   let args :=
     match req.arguments with
     | .obj _ => req.arguments
@@ -308,104 +250,116 @@ private def handleStackTrace (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterStat
   let startFrame := (args.getObjValAs? Nat "startFrame").toOption.getD 0
   let levels := (args.getObjValAs? Nat "levels").toOption.getD 20
   let st ← stRef.get
+  let response ←
+    match Dap.stackTrace st.core sessionId startFrame levels with
+    | .ok value => pure value
+    | .error err => throw <| IO.userError err
   let sourceField? := sourceJson? st.sourcePath?
-  let line := stmtLineToSourceLine st.stmtSpans session.currentLine
-  let frameBase :=
-    [ ("id", toJson 0),
-      ("name", toJson (currentFrameName session)),
-      ("line", toJson line),
-      ("column", toJson 1) ]
-  let frame :=
+  let stackFrames := response.stackFrames.map fun frame =>
+    let base :=
+      [ ("id", toJson frame.id),
+        ("name", toJson frame.name),
+        ("line", toJson frame.line),
+        ("column", toJson frame.column) ]
     match sourceField? with
-    | some source => Json.mkObj <| frameBase ++ [("source", source)]
-    | none => Json.mkObj frameBase
-  let frames :=
-    if startFrame > 0 || levels = 0 then
-      #[]
-    else
-      #[frame]
+    | some source => Json.mkObj <| base ++ [("source", source)]
+    | none => Json.mkObj base
   sendResponse stdout stRef req <| Json.mkObj
-    [ ("stackFrames", Json.arr frames),
-      ("totalFrames", toJson 1) ]
+    [ ("stackFrames", Json.arr stackFrames),
+      ("totalFrames", toJson response.totalFrames) ]
 
 private def handleScopes (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState)
     (req : DapRequest) : IO Unit := do
-  let some _ := (← stRef.get).session?
-    | throw <| IO.userError "No active DAP session. Launch first."
+  let sessionId ← requireActiveSessionId stRef
   let args :=
     match req.arguments with
     | .obj _ => req.arguments
     | _ => Json.mkObj []
   let frameId := (args.getObjValAs? Nat "frameId").toOption.getD 0
-  let scopes :=
-    if frameId = 0 then
-      #[Json.mkObj
-        [ ("name", toJson "locals"),
-          ("variablesReference", toJson 1),
-          ("expensive", toJson false) ]]
-    else
-      #[]
+  let response ←
+    match Dap.scopes (← stRef.get).core sessionId frameId with
+    | .ok value => pure value
+    | .error err => throw <| IO.userError err
+  let scopes := response.scopes.map fun scope =>
+    Json.mkObj
+      [ ("name", toJson scope.name),
+        ("variablesReference", toJson scope.variablesReference),
+        ("expensive", toJson scope.expensive) ]
   sendResponse stdout stRef req <| Json.mkObj [("scopes", Json.arr scopes)]
 
 private def handleVariables (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState)
     (req : DapRequest) : IO Unit := do
-  let some session := (← stRef.get).session?
-    | throw <| IO.userError "No active DAP session. Launch first."
+  let sessionId ← requireActiveSessionId stRef
   let args :=
     match req.arguments with
     | .obj _ => req.arguments
     | _ => Json.mkObj []
   let variablesReference := (args.getObjValAs? Nat "variablesReference").toOption.getD 0
-  let variables :=
-    if variablesReference != 1 then
-      #[]
-    else
-      session.bindings.map fun (name, value) =>
-        Json.mkObj
-          [ ("name", toJson name),
-            ("value", toJson (toString value)),
-            ("variablesReference", toJson 0) ]
+  let response ←
+    match Dap.variables (← stRef.get).core sessionId variablesReference with
+    | .ok value => pure value
+    | .error err => throw <| IO.userError err
+  let variables := response.variables.map fun var =>
+    Json.mkObj
+      [ ("name", toJson var.name),
+        ("value", toJson var.value),
+        ("variablesReference", toJson var.variablesReference) ]
   sendResponse stdout stRef req <| Json.mkObj [("variables", Json.arr variables)]
-
-private def withSessionControl (stRef : IO.Ref AdapterState) (f : DebugSession → DebugSession × StopReason) :
-    IO (DebugSession × StopReason) := do
-  let some session := (← stRef.get).session?
-    | throw <| IO.userError "No active DAP session. Launch first."
-  let (session, reason) := f session
-  stRef.modify fun st => { st with session? := some session }
-  pure (session, reason)
 
 private def handleNext (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState)
     (req : DapRequest) : IO Unit := do
-  let (session, reason) ← withSessionControl stRef DebugSession.next
+  let sessionId ← requireActiveSessionId stRef
+  let (core, response) ←
+    match Dap.next (← stRef.get).core sessionId with
+    | .ok value => pure value
+    | .error err => throw <| IO.userError err
+  stRef.modify fun st => { st with core }
   sendResponse stdout stRef req
-  emitStopOrTerminate stdout stRef session reason
+  emitStopOrTerminate stdout stRef response.stopReason response.terminated
 
 private def handleStepBack (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState)
     (req : DapRequest) : IO Unit := do
-  let (session, reason) ← withSessionControl stRef DebugSession.stepBack
+  let sessionId ← requireActiveSessionId stRef
+  let (core, response) ←
+    match Dap.stepBack (← stRef.get).core sessionId with
+    | .ok value => pure value
+    | .error err => throw <| IO.userError err
+  stRef.modify fun st => { st with core }
   sendResponse stdout stRef req
-  emitStopOrTerminate stdout stRef session reason
+  emitStopOrTerminate stdout stRef response.stopReason response.terminated
 
 private def handleContinue (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState)
     (req : DapRequest) : IO Unit := do
-  let (session, reason) ← withSessionControl stRef DebugSession.continueExecution
+  let sessionId ← requireActiveSessionId stRef
+  let (core, response) ←
+    match Dap.continueExecution (← stRef.get).core sessionId with
+    | .ok value => pure value
+    | .error err => throw <| IO.userError err
+  stRef.modify fun st => { st with core }
   sendEvent stdout stRef "continued" <| Json.mkObj
     [ ("threadId", toJson 1),
       ("allThreadsContinued", toJson true) ]
   sendResponse stdout stRef req <| Json.mkObj [("allThreadsContinued", toJson true)]
-  emitStopOrTerminate stdout stRef session reason
+  emitStopOrTerminate stdout stRef response.stopReason response.terminated
 
 private def handlePause (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState)
     (req : DapRequest) : IO Unit := do
-  let some session := (← stRef.get).session?
-    | throw <| IO.userError "No active DAP session. Launch first."
+  let sessionId ← requireActiveSessionId stRef
+  let response ←
+    match Dap.pause (← stRef.get).core sessionId with
+    | .ok value => pure value
+    | .error err => throw <| IO.userError err
   sendResponse stdout stRef req
-  emitStopOrTerminate stdout stRef session .pause
+  emitStopOrTerminate stdout stRef response.stopReason response.terminated
 
 private def handleDisconnect (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState)
     (req : DapRequest) : IO Unit := do
-  stRef.modify fun st => { st with session? := none }
+  let st ← stRef.get
+  let core :=
+    match st.activeSessionId? with
+    | some sessionId => (Dap.disconnect st.core sessionId).1
+    | none => st.core
+  stRef.modify fun st => { st with core, activeSessionId? := none }
   sendResponse stdout stRef req
 
 private def handleRequest (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState)

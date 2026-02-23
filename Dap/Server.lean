@@ -1,35 +1,12 @@
 import Lean
-import Dap.DebugModel
+import Dap.DebugCore
 
 open Lean Lean.Server
 
 namespace Dap.Server
 
-structure SessionStore where
-  nextId : Nat := 1
-  sessions : Std.HashMap Nat DebugSession := {}
-  deriving Inhabited
-
 builtin_initialize dapSessionStoreRef : IO.Ref SessionStore ←
   IO.mkRef { nextId := 1, sessions := {} }
-
-private def allocateSession (session : DebugSession) : IO Nat := do
-  dapSessionStoreRef.modifyGet fun store =>
-    let sessionId := store.nextId
-    let sessions := store.sessions.insert sessionId session
-    (sessionId, { nextId := sessionId + 1, sessions })
-
-private def findSession? (sessionId : Nat) : IO (Option DebugSession) := do
-  return (← dapSessionStoreRef.get).sessions.get? sessionId
-
-private def updateSession (sessionId : Nat) (session : DebugSession) : IO Unit := do
-  dapSessionStoreRef.modify fun store =>
-    { store with sessions := store.sessions.insert sessionId session }
-
-private def eraseSession (sessionId : Nat) : IO Bool := do
-  dapSessionStoreRef.modifyGet fun store =>
-    let existed := (store.sessions.get? sessionId).isSome
-    (existed, { store with sessions := store.sessions.erase sessionId })
 
 structure InitializeParams where
   deriving Inhabited, Repr, FromJson, ToJson
@@ -54,54 +31,24 @@ structure LaunchMainParams where
   breakpoints : Array Nat := #[]
   deriving Inhabited, Repr, FromJson, ToJson
 
-structure LaunchResponse where
-  sessionId : Nat
-  threadId : Nat
-  line : Nat
-  stopReason : String
-  terminated : Bool
-  deriving Inhabited, Repr, FromJson, ToJson
-
-structure BreakpointView where
-  line : Nat
-  verified : Bool
-  message? : Option String := none
-  deriving Inhabited, Repr, FromJson, ToJson
+abbrev LaunchResponse := Dap.LaunchResponse
+abbrev BreakpointView := Dap.BreakpointView
 
 structure SetBreakpointsParams where
   sessionId : Nat
   breakpoints : Array Nat := #[]
   deriving Inhabited, Repr, FromJson, ToJson
 
-structure SetBreakpointsResponse where
-  breakpoints : Array BreakpointView
-  deriving Inhabited, Repr, FromJson, ToJson
-
-structure ThreadView where
-  id : Nat
-  name : String
-  deriving Inhabited, Repr, FromJson, ToJson
-
-structure ThreadsResponse where
-  threads : Array ThreadView
-  deriving Inhabited, Repr, FromJson, ToJson
+abbrev SetBreakpointsResponse := Dap.SetBreakpointsResponse
+abbrev ThreadView := Dap.ThreadView
+abbrev ThreadsResponse := Dap.ThreadsResponse
 
 structure SessionParams where
   sessionId : Nat
   deriving Inhabited, Repr, FromJson, ToJson
 
-structure ControlResponse where
-  line : Nat
-  stopReason : String
-  terminated : Bool
-  deriving Inhabited, Repr, FromJson, ToJson
-
-structure StackFrameView where
-  id : Nat
-  name : String
-  line : Nat
-  column : Nat
-  deriving Inhabited, Repr, FromJson, ToJson
+abbrev ControlResponse := Dap.ControlResponse
+abbrev StackFrameView := Dap.StackFrameView
 
 structure StackTraceParams where
   sessionId : Nat
@@ -109,40 +56,23 @@ structure StackTraceParams where
   levels : Nat := 20
   deriving Inhabited, Repr, FromJson, ToJson
 
-structure StackTraceResponse where
-  stackFrames : Array StackFrameView
-  totalFrames : Nat
-  deriving Inhabited, Repr, FromJson, ToJson
+abbrev StackTraceResponse := Dap.StackTraceResponse
 
 structure ScopesParams where
   sessionId : Nat
   frameId : Nat := 0
   deriving Inhabited, Repr, FromJson, ToJson
 
-structure ScopeView where
-  name : String
-  variablesReference : Nat
-  expensive : Bool := false
-  deriving Inhabited, Repr, FromJson, ToJson
-
-structure ScopesResponse where
-  scopes : Array ScopeView
-  deriving Inhabited, Repr, FromJson, ToJson
+abbrev ScopeView := Dap.ScopeView
+abbrev ScopesResponse := Dap.ScopesResponse
 
 structure VariablesParams where
   sessionId : Nat
   variablesReference : Nat
   deriving Inhabited, Repr, FromJson, ToJson
 
-structure VariableView where
-  name : String
-  value : String
-  variablesReference : Nat := 0
-  deriving Inhabited, Repr, FromJson, ToJson
-
-structure VariablesResponse where
-  variables : Array VariableView
-  deriving Inhabited, Repr, FromJson, ToJson
+abbrev VariableView := Dap.VariableView
+abbrev VariablesResponse := Dap.VariablesResponse
 
 structure DisconnectResponse where
   disconnected : Bool
@@ -151,21 +81,15 @@ structure DisconnectResponse where
 private def mkInvalidParams (message : String) : RequestError :=
   RequestError.invalidParams message
 
-private def getSessionOrThrow (sessionId : Nat) : RequestM DebugSession := do
-  match ← findSession? sessionId with
-  | some session => pure session
-  | none => throw <| mkInvalidParams s!"Unknown DAP session id: {sessionId}"
+private def runCoreResult (result : Except String α) : RequestM α :=
+  match result with
+  | .ok value =>
+    pure value
+  | .error err =>
+    throw <| mkInvalidParams err
 
-private def mkControlResponse (session : DebugSession) (reason : StopReason) : ControlResponse :=
-  { line := session.currentLine
-    stopReason := toString reason
-    terminated := session.atEnd || reason = .terminated }
-
-private def currentFrameName (session : DebugSession) : String :=
-  let pc := session.currentPc
-  match session.trace.program[pc]? with
-  | some stmt => toString stmt
-  | none => "<terminated>"
+private def updateStore (store : SessionStore) : IO Unit :=
+  dapSessionStoreRef.set store
 
 private def parseDeclName? (raw : String) : Option Name :=
   let parts := raw.trimAscii.toString.splitOn "." |>.filter (· != "")
@@ -302,21 +226,14 @@ private def decodeProgramExpr? (e : Expr) : Lean.MetaM (Option Program) := do
   | _ =>
     pure none
 
-private def launchFromProgram (program : Program) (stopOnEntry : Bool) (breakpoints : Array Nat) :
-    RequestM LaunchResponse := do
-  let session ←
-    match DebugSession.fromProgram program with
-    | .ok session => pure session
-    | .error err => throw <| mkInvalidParams s!"Launch failed: {err}"
-  let session := session.setBreakpoints breakpoints
-  let (session, stopReason) := session.initialStop stopOnEntry
-  let sessionId ← allocateSession session
-  pure
-    { sessionId
-      threadId := 1
-      line := session.currentLine
-      stopReason := toString stopReason
-      terminated := session.atEnd || stopReason = .terminated }
+private def launchFromProgram
+    (program : Program)
+    (stopOnEntry : Bool)
+    (breakpoints : Array Nat) : RequestM LaunchResponse := do
+  let store ← dapSessionStoreRef.get
+  let (store, response) ← runCoreResult <| Dap.launchFromProgram store program stopOnEntry breakpoints
+  updateStore store
+  pure response
 
 @[server_rpc_method]
 def dapInitialize (_params : InitializeParams) : RequestM (RequestTask InitializeResponse) :=
@@ -362,102 +279,65 @@ def dapLaunchMain (params : LaunchMainParams) : RequestM (RequestTask LaunchResp
 def dapSetBreakpoints (params : SetBreakpointsParams) :
     RequestM (RequestTask SetBreakpointsResponse) :=
   RequestM.pureTask do
-    let session ← getSessionOrThrow params.sessionId
-    let programSize := session.trace.program.size
-    let normalized := DebugSession.normalizeBreakpoints programSize params.breakpoints
-    let session := { session with breakpoints := normalized }
-    updateSession params.sessionId session
-    let views :=
-      params.breakpoints.map fun line =>
-        let verified := DebugSession.isValidBreakpointLine programSize line
-        let message? :=
-          if verified then
-            none
-          else
-            some s!"Line {line} is outside the valid range 1..{programSize}"
-        { line, verified, message? : BreakpointView }
-    pure { breakpoints := views }
+    let store ← dapSessionStoreRef.get
+    let (store, response) ← runCoreResult <| Dap.setBreakpoints store params.sessionId params.breakpoints
+    updateStore store
+    pure response
 
 @[server_rpc_method]
 def dapThreads (_params : SessionParams) : RequestM (RequestTask ThreadsResponse) :=
   RequestM.pureTask do
-    pure { threads := #[{ id := 1, name := "main" }] }
+    pure <| Dap.threads (← dapSessionStoreRef.get)
 
 @[server_rpc_method]
 def dapNext (params : SessionParams) : RequestM (RequestTask ControlResponse) :=
   RequestM.pureTask do
-    let session ← getSessionOrThrow params.sessionId
-    let (session, reason) := session.next
-    updateSession params.sessionId session
-    pure (mkControlResponse session reason)
+    let store ← dapSessionStoreRef.get
+    let (store, response) ← runCoreResult <| Dap.next store params.sessionId
+    updateStore store
+    pure response
 
 @[server_rpc_method]
 def dapStepBack (params : SessionParams) : RequestM (RequestTask ControlResponse) :=
   RequestM.pureTask do
-    let session ← getSessionOrThrow params.sessionId
-    let (session, reason) := session.stepBack
-    updateSession params.sessionId session
-    pure (mkControlResponse session reason)
+    let store ← dapSessionStoreRef.get
+    let (store, response) ← runCoreResult <| Dap.stepBack store params.sessionId
+    updateStore store
+    pure response
 
 @[server_rpc_method]
 def dapContinue (params : SessionParams) : RequestM (RequestTask ControlResponse) :=
   RequestM.pureTask do
-    let session ← getSessionOrThrow params.sessionId
-    let (session, reason) := session.continueExecution
-    updateSession params.sessionId session
-    pure (mkControlResponse session reason)
+    let store ← dapSessionStoreRef.get
+    let (store, response) ← runCoreResult <| Dap.continueExecution store params.sessionId
+    updateStore store
+    pure response
 
 @[server_rpc_method]
 def dapPause (params : SessionParams) : RequestM (RequestTask ControlResponse) :=
   RequestM.pureTask do
-    let session ← getSessionOrThrow params.sessionId
-    pure (mkControlResponse session .pause)
+    runCoreResult <| Dap.pause (← dapSessionStoreRef.get) params.sessionId
 
 @[server_rpc_method]
 def dapStackTrace (params : StackTraceParams) : RequestM (RequestTask StackTraceResponse) :=
   RequestM.pureTask do
-    let session ← getSessionOrThrow params.sessionId
-    let fullFrames :=
-      #[{
-        id := 0
-        name := currentFrameName session
-        line := session.currentLine
-        column := 1
-      : StackFrameView }]
-    let frames :=
-      if params.startFrame > 0 || params.levels = 0 then
-        #[]
-      else
-        fullFrames
-    pure
-      { stackFrames := frames
-        totalFrames := fullFrames.size }
+    runCoreResult <| Dap.stackTrace (← dapSessionStoreRef.get) params.sessionId params.startFrame params.levels
 
 @[server_rpc_method]
 def dapScopes (params : ScopesParams) : RequestM (RequestTask ScopesResponse) :=
   RequestM.pureTask do
-    let _ ← getSessionOrThrow params.sessionId
-    if params.frameId = 0 then
-      pure { scopes := #[{ name := "locals", variablesReference := 1 }] }
-    else
-      pure { scopes := #[] }
+    runCoreResult <| Dap.scopes (← dapSessionStoreRef.get) params.sessionId params.frameId
 
 @[server_rpc_method]
 def dapVariables (params : VariablesParams) : RequestM (RequestTask VariablesResponse) :=
   RequestM.pureTask do
-    let session ← getSessionOrThrow params.sessionId
-    if params.variablesReference != 1 then
-      pure { variables := #[] }
-    else
-      let variables :=
-        session.bindings.map fun (name, value) =>
-          { name, value := toString value : VariableView }
-      pure { variables }
+    runCoreResult <| Dap.variables (← dapSessionStoreRef.get) params.sessionId params.variablesReference
 
 @[server_rpc_method]
 def dapDisconnect (params : SessionParams) : RequestM (RequestTask DisconnectResponse) :=
   RequestM.pureTask do
-    let disconnected ← eraseSession params.sessionId
+    let (store, disconnected) := Dap.disconnect (← dapSessionStoreRef.get) params.sessionId
+    updateStore store
     pure { disconnected }
 
 end Dap.Server
