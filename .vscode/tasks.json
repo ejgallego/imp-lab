@@ -9,7 +9,7 @@
         "exe",
         "dap-export",
         "--decl",
-        "Dap.Lang.Examples.mainProgramInfo",
+        "Dap.Lang.Examples.mainProgram",
         "--out",
         ".dap/programInfo.generated.json"
       ],
