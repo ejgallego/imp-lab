@@ -30,7 +30,7 @@ structure LaunchParams where
   deriving Inhabited, Repr, FromJson, ToJson
 
 structure LaunchMainParams where
-  entryPoint : String := "mainProgram"
+  entryPoint : String := "mainProgramInfo"
   line : Nat := 0
   character : Nat := 0
   stopOnEntry : Bool := true
@@ -373,7 +373,11 @@ def dapLaunchMain (params : LaunchMainParams) : RequestM (RequestTask LaunchResp
       RequestM.runTermElabM snap do
         decodeProgramInfoExpr? (mkConst resolvedName)
     match programInfo? with
-    | some info =>
+    | some rawInfo =>
+      let info ←
+        match rawInfo.validate with
+        | .ok info => pure info
+        | .error err => throw <| mkInvalidParams err
       launchFromProgram info.program params.stopOnEntry params.breakpoints info.stmtSpans
     | none =>
       let program ←

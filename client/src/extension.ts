@@ -59,7 +59,7 @@ class LeanToyDebugConfigurationProvider implements vscode.DebugConfigurationProv
             }
         }
         if (!config.entryPoint && !config.program && !config.programFile) {
-            config.entryPoint = 'mainProgram'
+            config.entryPoint = 'mainProgramInfo'
         }
         return config
     }

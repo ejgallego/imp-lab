@@ -38,7 +38,7 @@ Run these after meaningful changes touching Lean or VS Code codepaths.
 - Prefer simplicity and readability over performance-oriented complexity.
 - Prefer small, total helpers over large request handlers.
 - Preserve stable JSON shapes for DAP-facing payloads.
-- Keep sample/demo declarations in `Dap/Lang/Examples.lean` as canonical fixtures.
+- Keep sample/demo declarations in `examples/Main.lean` as canonical fixtures.
 - When adding new launch modes, update both docs and tests.
 - Keep `mainProgram` as the default user entrypoint.
 - Prefer `ProgramInfo`-first APIs and flows; avoid adding new `Program`-only paths.

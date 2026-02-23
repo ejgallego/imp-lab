@@ -23,6 +23,7 @@ def hasNext (items : Array α) (cursor : Nat) : Bool :=
   cursor + 1 < items.size
 
 def backCursor (items : Array α) (cursor : Nat) : Nat :=
+  let cursor := normalizeCursor items cursor
   if hasPrev items cursor then
     cursor - 1
   else

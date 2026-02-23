@@ -7,7 +7,7 @@ Author: Emilio J. Gallego Arias
 import Lean
 import Lean.Data.Lsp.Communication
 import Dap.DAP.Core
-import Dap.Lang.Examples
+import examples.Main
 
 open Lean
 
@@ -102,7 +102,7 @@ private def parseBreakpointLines (args : Json) : Array Nat :=
       | none => acc
 
 private def spansFromProgramInfo (programInfo : ProgramInfo) : Array StmtSpan :=
-  programInfo.located.map (·.span)
+  programInfo.stmtSpans
 
 private def parseDeclName? (raw : String) : Option Name :=
   let parts := raw.trimAscii.toString.splitOn "." |>.filter (· != "")
@@ -119,14 +119,30 @@ private def isUnqualifiedName (n : Name) : Bool :=
 
 private def candidateDeclNames (decl : Name) : Array Name :=
   if isUnqualifiedName decl then
-    #[decl, `Dap.Lang.Examples ++ decl]
+    #[decl, `Main ++ decl, `Dap.Lang.Examples ++ decl]
   else
     #[decl]
+
+private def importProjectEnv : IO Environment := do
+  let candidates : Array (Array Name) :=
+    #[#[`Main, `Dap], #[`Main], #[`Dap]]
+  let rec go (idx : Nat) : IO Environment := do
+    if h : idx < candidates.size then
+      let modules := candidates[idx]
+      let imports : Array Import := modules.map (fun module => { module })
+      try
+        importModules imports {}
+      catch _ =>
+        go (idx + 1)
+    else
+      throw <| IO.userError "Could not import project modules (`Main` or `Dap`) to resolve entryPoint"
+  go 0
 
 private unsafe def evalLaunchProgramFromDecl
     (env : Environment) (opts : Options) (decl : Name) : Except String LaunchProgram := do
   match env.evalConstCheck ProgramInfo opts ``Dap.ProgramInfo decl with
-  | .ok programInfo =>
+  | .ok rawProgramInfo =>
+    let programInfo ← rawProgramInfo.validate
     pure { program := programInfo.program, stmtSpans := spansFromProgramInfo programInfo }
   | .error infoErr =>
     match env.evalConstCheck Program opts ``Dap.Program decl with
@@ -142,7 +158,7 @@ private def programFromEntryPoint (entryPoint : String) : IO LaunchProgram := do
     match parseDeclName? entryPoint with
     | some n => pure n
     | none => throw <| IO.userError s!"Invalid entryPoint '{entryPoint}'"
-  let env ← importModules #[`Dap.Lang.Examples] {}
+  let env ← importProjectEnv
   let opts : Options := {}
   let candidates := candidateDeclNames declName
   let resolved? := candidates.find? env.contains
@@ -163,7 +179,10 @@ private def decodeProgram (json : Json) : Except String Program :=
 
 private def decodeProgramInfo (json : Json) : Except String ProgramInfo :=
   match (fromJson? json : Except String ProgramInfo) with
-  | .ok programInfo => pure programInfo
+  | .ok programInfo =>
+    match programInfo.validate with
+    | .ok info => pure info
+    | .error err => throw err
   | .error err => throw s!"Invalid 'programInfo' payload: {err}"
 
 private def decodeLaunchProgram (json : Json) : Except String LaunchProgram :=
@@ -199,8 +218,8 @@ private def resolveLaunchProgram (args : Json) : IO LaunchProgram := do
   else if let some programFile := (args.getObjValAs? String "programFile").toOption then
     readLaunchProgramFile programFile
   else
-    let rawEntry := (args.getObjValAs? String "entryPoint").toOption.getD "mainProgram"
-    let entry := if rawEntry.trimAscii.toString = "" then "mainProgram" else rawEntry
+    let rawEntry := (args.getObjValAs? String "entryPoint").toOption.getD "mainProgramInfo"
+    let entry := if rawEntry.trimAscii.toString = "" then "mainProgramInfo" else rawEntry
     programFromEntryPoint entry
 
 private def sourceJson? (sourcePath? : Option String) : Option Json := do
@@ -267,7 +286,11 @@ private def handleSetBreakpoints (stdout : IO.FS.Stream) (stRef : IO.Ref Adapter
   match st.activeSessionId? with
   | none =>
     let breakpoints := Json.arr <| lines.map fun line =>
-      Json.mkObj [("line", toJson line), ("verified", toJson true)]
+      toBreakpointJson
+        { line
+          verified := false
+          message? := some "Breakpoint pending: it will be verified when the program launches."
+          : BreakpointView }
     sendResponse stdout stRef req <| Json.mkObj [("breakpoints", breakpoints)]
   | some sessionId =>
     let (core, response) ←

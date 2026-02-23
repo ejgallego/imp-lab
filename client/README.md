@@ -30,8 +30,8 @@ Use debug type `lean-toy-dap`.
 - Optional source path shown in stack traces.
 
 Entry point:
-- If neither `program` nor `programFile` are provided, `entryPoint` defaults to `mainProgram`.
-- `entryPoint` is resolved as a Lean declaration name (supports both `Dap.ProgramInfo` and `Dap.Program`; unqualified names also try `Dap.Lang.Examples.<name>`).
+- If neither `program` nor `programFile` are provided, `entryPoint` defaults to `mainProgramInfo`.
+- `entryPoint` is resolved as a Lean declaration name (supports both `Dap.ProgramInfo` and `Dap.Program`; unqualified names also try `Main.<name>` and `Dap.Lang.Examples.<name>`).
 
 Adapter executable:
 - `toydapPath` (optional): explicit path to the `toydap` binary.
@@ -46,7 +46,7 @@ Example:
   "request": "launch",
   "source": "${file}",
   "toydapPath": "${workspaceFolder}/.lake/build/bin/toydap",
-  "entryPoint": "mainProgram",
+  "entryPoint": "mainProgramInfo",
   "stopOnEntry": true
 }
 ```

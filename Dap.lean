@@ -15,4 +15,4 @@ import Dap.DAP.Export
 import Dap.DAP.Server
 import Dap.Widget.Types
 import Dap.Widget.Server
-import Dap.Lang.Examples
+import examples.Main

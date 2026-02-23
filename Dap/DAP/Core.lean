@@ -117,16 +117,34 @@ private def ensureControllable (data : SessionData) (sessionId : Nat) : Except S
   else
     pure ()
 
+private def requestedLineToStmtLine?
+    (programSize : Nat) (spans : Array StmtSpan) (line : Nat) : Option Nat :=
+  let stmtLine? :=
+    if spans.isEmpty then
+      some line
+    else
+      ProgramInfo.sourceLineToStmtLine? spans line
+  stmtLine?.bind fun stmtLine =>
+    if DebugSession.isValidBreakpointLine programSize stmtLine then
+      some stmtLine
+    else
+      none
+
+private def ensureCompatibleStmtSpans
+    (programSize : Nat) (stmtSpans : Array StmtSpan) : Except String Unit :=
+  if ProgramInfo.spansCompatibleWithProgramSize programSize stmtSpans then
+    .ok ()
+  else
+    .error <|
+      s!"Launch failed: incompatible statement spans. Program has {programSize} statements " ++
+      s!"but span array has {stmtSpans.size} entries (must be 0 or match program size)."
+
 private def normalizeRequestedBreakpoints
     (programSize : Nat) (spans : Array StmtSpan) (lines : Array Nat) : Array Nat :=
   lines.foldl
     (init := #[])
     (fun acc line =>
-      let stmtLine? :=
-        if spans.isEmpty then
-          if DebugSession.isValidBreakpointLine programSize line then some line else none
-        else
-          ProgramInfo.sourceLineToStmtLine? spans line
+      let stmtLine? := requestedLineToStmtLine? programSize spans line
       match stmtLine? with
       | some stmtLine =>
         if !acc.contains stmtLine then
@@ -137,21 +155,24 @@ private def normalizeRequestedBreakpoints
         acc)
 
 private def mkBreakpointView (programSize : Nat) (spans : Array StmtSpan) (line : Nat) : BreakpointView :=
-  let stmtLine? :=
-    if spans.isEmpty then
-      if DebugSession.isValidBreakpointLine programSize line then some line else none
-    else
-      ProgramInfo.sourceLineToStmtLine? spans line
-  match stmtLine? with
-  | some _ =>
-    { line, verified := true }
-  | none =>
-    let message? :=
-      if spans.isEmpty then
-        some s!"Line {line} is outside the valid range 1..{programSize}"
+  if spans.isEmpty then
+    match requestedLineToStmtLine? programSize spans line with
+    | some _ =>
+      { line, verified := true }
+    | none =>
+      { line, verified := false, message? := some s!"Line {line} is outside the valid range 1..{programSize}" }
+  else
+    match ProgramInfo.sourceLineToStmtLine? spans line with
+    | none =>
+      { line, verified := false, message? := some s!"No statement maps to source line {line}" }
+    | some stmtLine =>
+      if DebugSession.isValidBreakpointLine programSize stmtLine then
+        { line, verified := true }
       else
-        some s!"No statement maps to source line {line}"
-    { line, verified := false, message? }
+        { line
+          verified := false
+          message? := some
+            s!"Source line {line} maps to statement line {stmtLine}, outside the valid range 1..{programSize}." }
 
 private def currentFrameName (session : DebugSession) : String :=
   let pc := session.currentPc
@@ -171,6 +192,7 @@ def launchFromProgram
     (stopOnEntry : Bool)
     (breakpoints : Array Nat)
     (stmtSpans : Array StmtSpan := #[]) : Except String (SessionStore × LaunchResponse) := do
+  ensureCompatibleStmtSpans program.size stmtSpans
   let session ←
     match DebugSession.fromProgram program with
     | .ok session => pure session
@@ -202,7 +224,7 @@ def setBreakpoints
   ensureControllable data sessionId
   let programSize := data.session.program.size
   let normalized := normalizeRequestedBreakpoints programSize data.stmtSpans breakpoints
-  let data := { data with session := { data.session with breakpoints := normalized } }
+  let data := { data with session := data.session.setBreakpoints normalized }
   let store := putSessionData store sessionId data
   let views := breakpoints.map (mkBreakpointView programSize data.stmtSpans)
   pure (store, { breakpoints := views })

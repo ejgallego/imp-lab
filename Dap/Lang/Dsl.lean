@@ -17,6 +17,7 @@ declare_syntax_cat dap_rhs
 declare_syntax_cat dap_stmt
 
 syntax num : dap_rhs
+syntax "-" num : dap_rhs
 syntax "add" ident ident : dap_rhs
 syntax "sub" ident ident : dap_rhs
 syntax "mul" ident ident : dap_rhs
@@ -38,12 +39,15 @@ def p : Dap.ProgramInfo := dap%[
 -/
 syntax (name := dapProgramTerm) "dap%[" dap_stmt,* "]" : term
 
-/-- Convenience command macro to define a `Dap.Program` from DSL syntax. -/
+/--
+Convenience command macro to define a program declaration from DSL syntax.
+The declaration type is inferred from the right-hand side (`ProgramInfo` for `dap%[...]`).
+-/
 syntax (name := dapProgramDefCmd) "dap_program " ident " := " term : command
 
 macro_rules
   | `(dap_program $name:ident := $program:term) =>
-      `(def $name : Dap.Program := $program)
+      `(def $name := $program)
 
 private structure ProgramSyntaxInfo where
   located : Array LocatedStmt
@@ -70,6 +74,9 @@ private def parseStmt : Syntax → TermElabM Stmt
   | `(dap_stmt| let $dest:ident := $n:num) => do
     let value := Int.ofNat (← parseNatLiteral n)
     pure (Stmt.letConst (varOfIdent dest) value)
+  | `(dap_stmt| let $dest:ident := - $n:num) => do
+    let value := -(Int.ofNat (← parseNatLiteral n))
+    pure (Stmt.letConst (varOfIdent dest) value)
   | `(dap_stmt| let $dest:ident := add $lhs:ident $rhs:ident) =>
     pure (Stmt.letBin (varOfIdent dest) .add (varOfIdent lhs) (varOfIdent rhs))
   | `(dap_stmt| let $dest:ident := sub $lhs:ident $rhs:ident) =>
@@ -79,7 +86,7 @@ private def parseStmt : Syntax → TermElabM Stmt
   | `(dap_stmt| let $dest:ident := div $lhs:ident $rhs:ident) =>
     pure (Stmt.letBin (varOfIdent dest) .div (varOfIdent lhs) (varOfIdent rhs))
   | stx =>
-    throwErrorAt stx "invalid toy-language statement; expected `let v := N` or `let v := op v1 v2`"
+    throwErrorAt stx "invalid toy-language statement; expected `let v := N`, `let v := -N`, or `let v := op v1 v2`"
 
 private def spanOfSyntax (fileMap : FileMap) (stx : Syntax) : StmtSpan :=
   match stx.getPos?, stx.getTailPos? with

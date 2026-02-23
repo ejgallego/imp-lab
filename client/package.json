@@ -44,8 +44,8 @@
               },
               "entryPoint": {
                 "type": "string",
-                "default": "mainProgram",
-                "description": "Optional built-in entry point name (mainProgram/sampleProgram) when no program/programFile is provided."
+                "default": "mainProgramInfo",
+                "description": "Optional built-in entry point name (mainProgramInfo/mainProgram/sampleProgram) when no program/programFile is provided."
               },
               "program": {
                 "type": "array",
@@ -90,7 +90,7 @@
               "type": "lean-toy-dap",
               "request": "launch",
               "source": "${file}",
-              "entryPoint": "mainProgram",
+              "entryPoint": "mainProgramInfo",
               "toydapPath": "${workspaceFolder}/.lake/build/bin/toydap",
               "stopOnEntry": true
             }

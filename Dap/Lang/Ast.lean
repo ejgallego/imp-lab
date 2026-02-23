@@ -95,6 +95,20 @@ def Program.render (program : Program) : Array String :=
 
 namespace ProgramInfo
 
+def spansCompatibleWithProgramSize (programSize : Nat) (spans : Array StmtSpan) : Bool :=
+  spans.isEmpty || spans.size = programSize
+
+def hasCompatibleLocations (info : ProgramInfo) : Bool :=
+  info.located.isEmpty || info.located.size = info.program.size
+
+def validate (info : ProgramInfo) : Except String ProgramInfo :=
+  if info.hasCompatibleLocations then
+    .ok info
+  else
+    .error <|
+      s!"Invalid ProgramInfo: program has {info.program.size} statements but `located` has {info.located.size}. " ++
+      "Expected either 0 entries (Program compatibility mode) or exactly one location per statement."
+
 def stmtSpans (info : ProgramInfo) : Array StmtSpan :=
   info.located.map (·.span)
 

@@ -5,6 +5,9 @@ defaultTargets = ["dap", "toydap", "dap-tests"]
 [[lean_lib]]
 name = "Dap"
 
+[[lean_lib]]
+name = "examples"
+
 [[lean_exe]]
 name = "dap"
 root = "Main"

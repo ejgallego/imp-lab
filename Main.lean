@@ -5,7 +5,7 @@ Author: Emilio J. Gallego Arias
 -/
 
 import Dap
-import Dap.Lang.Examples
+import examples.Main
 
 open Dap
 

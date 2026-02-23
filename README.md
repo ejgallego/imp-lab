@@ -15,7 +15,7 @@ Lean 4 toy project for:
 - `Dap/Lang/Eval.lean`: environment, small-step semantics, and full program runner.
 - `Dap/Lang/History.lean`: shared cursor/history navigation helpers.
 - `Dap/Lang/Trace.lean`: execution trace and navigation API (`Explorer`).
-- `Dap/Lang/Examples.lean`: sample program and precomputed widget props.
+- `examples/Main.lean`: sample program and precomputed widget props.
 - `Dap/DAP/Session.lean`: pure debugger session model (breakpoints, continue, next, stepBack).
 - `Dap/DAP/Core.lean`: session store + DAP-shaped pure core operations.
 - `Dap/DAP/Server.lean`: Lean server RPC endpoints implementing DAP-like operations.
@@ -101,9 +101,9 @@ They are designed to be called over Lean's `$/lean/rpc/call` transport.
 `dapLaunchMain` is the preferred entry for the VS Code prototype flow:
 - open a Lean file,
 - define `mainProgram : Dap.Program` (or `Dap.ProgramInfo`),
-- launch `lean-toy-dap` with `source = ${file}` and `entryPoint = "mainProgram"`.
+- launch `lean-toy-dap` with `source = ${file}` and `entryPoint = "mainProgramInfo"` (default).
 
-`entryPoint` resolves declarations dynamically (unqualified names also try `Dap.Lang.Examples.<name>`). The declaration may be either `Dap.Program` or `Dap.ProgramInfo`.
+`entryPoint` resolves declarations dynamically (unqualified names also try `Main.<name>` and `Dap.Lang.Examples.<name>`). The declaration may be either `Dap.Program` or `Dap.ProgramInfo`.
 
 ## Infotree metadata
 
@@ -116,7 +116,7 @@ Use `Dap.getProgramSyntaxInfo?` to decode these custom nodes from `Elab.Info` en
 In a Lean file:
 
 ```lean
-import Dap.Lang.Examples
+import examples.Main
 
 #widget Dap.traceExplorerWidget with Dap.Lang.Examples.sampleTraceProps
 ```
@@ -142,7 +142,7 @@ lake exe dap-export --decl Dap.Lang.Examples.mainProgramInfo --out .dap/programI
 ```
 
 `--decl` also accepts `Dap.Program` declarations; these are exported as `ProgramInfo` with empty `located` spans.
-Default is `--decl mainProgram`.
-For unqualified names, resolution tries `<name>` and then `Dap.Lang.Examples.<name>`.
+Default is `--decl mainProgramInfo`.
+For unqualified names, resolution tries `<name>`, `Main.<name>`, and then `Dap.Lang.Examples.<name>`.
 
 The repository `.vscode/launch.json` includes a config that runs this command as a `preLaunchTask`.

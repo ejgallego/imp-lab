@@ -15,7 +15,7 @@
       "type": "lean-toy-dap",
       "request": "launch",
       "source": "${file}",
-      "entryPoint": "mainProgram",
+      "entryPoint": "mainProgramInfo",
       "stopOnEntry": true
     }
   ]

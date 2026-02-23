@@ -61,6 +61,7 @@ def testHistoryCursorHelpers : IO Unit := do
   assertEq "history normalize clamps" (History.normalizeCursor items 99) 2
   assertSomeEq "history current? uses normalized cursor" (History.current? items 99) 30
   assertEq "history back at zero stays zero" (History.backCursor items 0) 0
+  assertEq "history back normalizes before stepping" (History.backCursor items 99) 1
   assertEq "history forward at end stays end" (History.forwardCursor items 99) 2
   assertEq "history jump clamps" (History.jumpCursor items 100) 2
 
@@ -188,6 +189,18 @@ def testDslProgram : IO Unit := do
   | .ok ctx =>
     assertSomeEq "dsl result" (ctx.lookup? "z") 13
 
+def testDslNegativeLiteral : IO Unit := do
+  let program : Program := dap%[
+    let x := -6,
+    let y := 2,
+    let z := add x y
+  ]
+  match run program with
+  | .error err =>
+    throw <| IO.userError s!"testDslNegativeLiteral failed: {err}"
+  | .ok ctx =>
+    assertSomeEq "dsl negative literal result" (ctx.lookup? "z") (-4)
+
 def testDslProgramInfo : IO Unit := do
   let info : ProgramInfo := dap%[
     let a := 1,
@@ -204,6 +217,24 @@ def testDslProgramInfo : IO Unit := do
   assertEq "source->stmt line mapping" firstStmtLine 1
   let firstSourceLine := ProgramInfo.stmtLineToSourceLine info.stmtSpans 1
   assertEq "stmt->source line mapping" firstSourceLine line0
+
+def testProgramInfoValidation : IO Unit := do
+  let stmt0 := Stmt.letConst "x" 1
+  let stmt1 := Stmt.letConst "y" 2
+  let span : StmtSpan := { startLine := 1, startColumn := 0, endLine := 1, endColumn := 10 }
+  let badInfo : ProgramInfo :=
+    { program := #[stmt0, stmt1]
+      located := #[{ stmt := stmt0, span }] }
+  match badInfo.validate with
+  | .ok _ =>
+    throw <| IO.userError "testProgramInfoValidation should reject mismatched ProgramInfo"
+  | .error err =>
+    assertTrue "programInfo mismatch error mentions located size" (err.contains "located")
+  let compatInfo : ProgramInfo := { program := #[stmt0, stmt1], located := #[] }
+  match compatInfo.validate with
+  | .ok _ => pure ()
+  | .error err =>
+    throw <| IO.userError s!"ProgramInfo compatibility mode should validate: {err}"
 
 private def expectCore (label : String) (result : Except String α) : IO α := do
   match result with
@@ -258,6 +289,21 @@ def testDebugCoreTerminatedGuards : IO Unit := do
     throw <| IO.userError "setBreakpoints should fail on terminated session"
   | .error err =>
     assertTrue "setBreakpoints terminated error mentions state" (err.contains "terminated")
+
+def testDebugCoreRejectsIncompatibleStmtSpans : IO Unit := do
+  let program : Program :=
+    #[
+      Stmt.letConst "x" 1,
+      Stmt.letConst "y" 2
+    ]
+  let stmtSpans : Array StmtSpan :=
+    #[{ startLine := 1, startColumn := 0, endLine := 1, endColumn := 10 }]
+  let launch := Dap.launchFromProgram (store := {}) program true #[] stmtSpans
+  match launch with
+  | .ok _ =>
+    throw <| IO.userError "launch should fail with incompatible statement spans"
+  | .error err =>
+    assertTrue "incompatible span error mentions statement spans" (err.contains "statement spans")
 
 private def encodeDapRequest (seq : Nat) (command : String) (arguments : Json := Json.mkObj []) : String :=
   let payload := Json.mkObj
@@ -327,8 +373,8 @@ def testToyDapBreakpointProtocol : IO Unit := do
   let stdout ← runToyDapPayload "toydap.breakpoint" stdinPayload
   assertTrue "setBreakpoints response present"
     (stdout.contains "\"request_seq\":2" && stdout.contains "\"command\":\"setBreakpoints\"")
-  assertTrue "breakpoint marked verified"
-    (stdout.contains "\"verified\":true")
+  assertTrue "pre-launch breakpoint stays pending"
+    (stdout.contains "\"verified\":false")
   assertTrue "launch response present in breakpoint flow"
     (stdout.contains "\"request_seq\":3" && stdout.contains "\"command\":\"launch\"")
   if stdout.contains "\"event\":\"stopped\"" && stdout.contains "\"reason\":\"breakpoint\"" then
@@ -371,9 +417,12 @@ def main : IO Unit := do
   Dap.Tests.testDebugSessionContinueAndBreakpoints
   Dap.Tests.testDebugSessionStepBack
   Dap.Tests.testDslProgram
+  Dap.Tests.testDslNegativeLiteral
   Dap.Tests.testDslProgramInfo
+  Dap.Tests.testProgramInfoValidation
   Dap.Tests.testDebugCoreFlow
   Dap.Tests.testDebugCoreTerminatedGuards
+  Dap.Tests.testDebugCoreRejectsIncompatibleStmtSpans
   Dap.Tests.testToyDapProtocolSanity
   Dap.Tests.testToyDapBreakpointProtocol
   Dap.Tests.testToyDapContinueEventOrder

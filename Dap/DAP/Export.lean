@@ -6,14 +6,14 @@ Author: Emilio J. Gallego Arias
 
 import Lean
 import Dap.Lang.Ast
-import Dap.Lang.Examples
+import examples.Main
 
 open Lean
 
 namespace Dap.Export
 
 structure CliOptions where
-  decl : String := "mainProgram"
+  decl : String := "mainProgramInfo"
   out : System.FilePath := System.FilePath.mk ".dap/programInfo.generated.json"
   pretty : Bool := true
   deriving Inhabited
@@ -27,10 +27,11 @@ def usage : String := String.intercalate "\n"
     "  - Dap.ProgramInfo (preferred, preserves spans), or",
     "  - Dap.Program (exported as ProgramInfo with empty `located`).",
     "",
-    "Default: --decl mainProgram",
+    "Default: --decl mainProgramInfo",
     "Name resolution for unqualified names tries:",
     "  1) <name>",
-    "  2) Dap.Lang.Examples.<name>" ]
+    "  2) Main.<name>",
+    "  3) Dap.Lang.Examples.<name>" ]
 
 private def parseArgs : CliOptions → List String → Except String CliOptions
   | opts, [] =>
@@ -68,15 +69,30 @@ private def isUnqualifiedName (n : Name) : Bool :=
 
 private def candidateDeclNames (decl : Name) : Array Name :=
   if isUnqualifiedName decl then
-    #[decl, `Dap.Lang.Examples ++ decl]
+    #[decl, `Main ++ decl, `Dap.Lang.Examples ++ decl]
   else
     #[decl]
+
+private def importProjectEnv : IO Environment := do
+  let candidates : Array (Array Name) :=
+    #[#[`Main, `Dap], #[`Main], #[`Dap]]
+  let rec go (idx : Nat) : IO Environment := do
+    if h : idx < candidates.size then
+      let modules := candidates[idx]
+      let imports : Array Import := modules.map (fun module => { module })
+      try
+        importModules imports {}
+      catch _ =>
+        go (idx + 1)
+    else
+      throw <| IO.userError "Could not import project modules (`Main` or `Dap`) to resolve declaration"
+  go 0
 
 private unsafe def evalProgramInfoOrProgram
     (env : Environment) (opts : Options) (decl : Name) : Except String ProgramInfo := do
   match env.evalConstCheck ProgramInfo opts ``Dap.ProgramInfo decl with
   | .ok info =>
-    pure info
+    info.validate
   | .error infoErr =>
     match env.evalConstCheck Program opts ``Dap.Program decl with
     | .ok program =>
@@ -91,7 +107,7 @@ private def loadProgramInfoFromDecl (rawDecl : String) : IO ProgramInfo := do
     match parseDeclName? rawDecl with
     | some n => pure n
     | none => throw <| IO.userError s!"Invalid declaration name '{rawDecl}'"
-  let env ← importModules #[`Dap.Lang.Examples] {}
+  let env ← importProjectEnv
   let opts : Options := {}
   let candidates := candidateDeclNames declName
   let resolved? := candidates.find? env.contains
