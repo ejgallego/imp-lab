@@ -134,9 +134,7 @@ def testToyDapNextStepsOverCall : IO Unit := do
   let stdinPayload :=
     String.intercalate ""
       [ encodeDapRequest 1 "initialize",
-        encodeDapRequest 2 "launch" <| Json.mkObj
-          [ ("entryPoint", toJson "mainProgram"),
-            ("stopOnEntry", toJson true) ],
+        encodeDapRequest 2 "launch" <| launchArgs true,
         encodeDapRequest 3 "next",
         encodeDapRequest 4 "next",
         encodeDapRequest 5 "next",
