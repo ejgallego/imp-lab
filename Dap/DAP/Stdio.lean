@@ -93,22 +93,8 @@ private def emitStopOrTerminate (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterS
         ("threadId", toJson 1),
         ("allThreadsStopped", toJson true) ]
 
-private def parseLineArray (json? : Option Json) : Array Nat :=
-  match json?.bind (fun v => v.getArr?.toOption) with
-  | none => #[]
-  | some arr =>
-    arr.foldl (init := #[]) fun acc entry =>
-      match (fromJson? entry : Except String Nat).toOption with
-      | some line =>
-        if line > 0 then
-          acc.push line
-        else
-          acc
-      | none =>
-        acc
-
-private def parseBreakpointsArray (json? : Option Json) : Array Nat :=
-  match json?.bind (fun v => v.getArr?.toOption) with
+private def parseBreakpointsArray (json : Json) : Array Nat :=
+  match json.getArr?.toOption with
   | none => #[]
   | some breakpoints =>
     breakpoints.foldl (init := #[]) fun acc bp =>
@@ -122,11 +108,19 @@ private def parseBreakpointsArray (json? : Option Json) : Array Nat :=
         acc
 
 private def parseBreakpointLines (args : Json) : Array Nat :=
-  let fromBreakpoints := parseBreakpointsArray (args.getObjVal? "breakpoints").toOption
-  if fromBreakpoints.isEmpty then
-    parseLineArray (args.getObjVal? "lines").toOption
-  else
+  let fromBreakpoints :=
+    match (args.getObjVal? "breakpoints").toOption with
+    | some breakpointsJson => parseBreakpointsArray breakpointsJson
+    | none => #[]
+  if !fromBreakpoints.isEmpty then
     fromBreakpoints
+  else
+    match (args.getObjValAs? (Array Nat) "lines").toOption with
+    | some lines =>
+      lines.foldl (init := #[]) fun acc line =>
+        if line > 0 then acc.push line else acc
+    | none =>
+      #[]
 
 private def requireProgramInfo (args : Json) : IO ProgramInfo := do
   let programInfoJson ←
