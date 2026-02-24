@@ -4,13 +4,13 @@ Released under Apache 2.0 license as described in the file LICENSE.
 Author: Emilio J. Gallego Arias
 -/
 
-import Dap.Widget.UI
-import Dap.Lang.Dsl
-import Dap.Widget.Server
+import ImpLab.Debugger.Widget.UI
+import ImpLab.Lang.Dsl
+import ImpLab.Debugger.Widget.Server
 
-namespace Dap.Lang.Examples
+namespace ImpLab.Lang.Examples
 
-open Dap
+open ImpLab
 
 def mainProgram : ProgramInfo := dap%[
   def bump(x) := {
@@ -40,6 +40,6 @@ def sampleTraceProps : TraceWidgetInitProps :=
 def sampleTracePropsJson : Lean.Json :=
   Lean.toJson sampleTraceProps
 
-end Dap.Lang.Examples
+end ImpLab.Lang.Examples
 
-#widget Dap.traceExplorerWidget with Dap.Lang.Examples.sampleTracePropsJson
+#widget ImpLab.traceExplorerWidget with ImpLab.Lang.Examples.sampleTracePropsJson

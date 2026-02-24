@@ -8,7 +8,7 @@ import Lean
 
 open Lean
 
-namespace Dap
+namespace ImpLab
 
 def parseDeclName? (raw : String) : Option Name :=
   let parts := raw.trimAscii.toString.splitOn "." |>.filter (· != "")
@@ -42,7 +42,7 @@ def candidateDeclNames
       | none =>
         names
     if includeExamples then
-      pushIfMissing names (`Dap.Lang.Examples ++ decl)
+      pushIfMissing names (`ImpLab.Lang.Examples ++ decl)
     else
       names
   else
@@ -56,7 +56,7 @@ def renderCandidateDecls (candidates : Array Name) : String :=
 
 def importProjectEnv : IO Environment := do
   let candidates : Array (Array Name) :=
-    #[#[`Main, `Dap], #[`Main], #[`Dap]]
+    #[#[`Main, `ImpLab], #[`Main], #[`ImpLab]]
   let rec go (idx : Nat) : IO Environment := do
     if h : idx < candidates.size then
       let modules := candidates[idx]
@@ -66,7 +66,7 @@ def importProjectEnv : IO Environment := do
       catch _ =>
         go (idx + 1)
     else
-      throw <| IO.userError "Could not import project modules (`Main` or `Dap`) to resolve declaration"
+      throw <| IO.userError "Could not import project modules (`Main` or `ImpLab`) to resolve declaration"
   go 0
 
-end Dap
+end ImpLab

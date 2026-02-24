@@ -6,10 +6,10 @@ Author: Emilio J. Gallego Arias
 
 import Test.Util
 
-open Dap
+open ImpLab
 open Lean
 
-namespace Dap.Tests
+namespace ImpLab.Tests
 
 private def mkProgram (mainBody : Array Stmt) (helpers : Array FuncDef := #[]) : Program :=
   { functions := #[{ name := Program.mainName, params := #[], body := mainBody }] ++ helpers }
@@ -184,8 +184,8 @@ def testWidgetProps : IO Unit := do
       Stmt.letBin "z" .div "y" "x"
     ]
   let info := mkProgramInfo program
-  let (store, launch) ← expectCore "widget launch" <| Dap.launchFromProgramInfo {} info true #[]
-  let data ← expectCore "widget session inspect" <| Dap.inspectSession store launch.sessionId
+  let (store, launch) ← expectCore "widget launch" <| ImpLab.launchFromProgramInfo {} info true #[]
+  let data ← expectCore "widget session inspect" <| ImpLab.inspectSession store launch.sessionId
   let props := TraceWidgetSessionView.ofSessionData launch.sessionId data launch.stopReason
   assertEq "widget session id" props.sessionId launch.sessionId
   assertEq "widget program length" props.program.size program.totalStmtCount
@@ -200,9 +200,9 @@ def testWidgetSessionProjectionAfterStep : IO Unit := do
       let z := div y x
     }
   ]
-  let (store1, launch) ← expectCore "widget step launch" <| Dap.launchFromProgramInfo {} info true #[]
-  let (store2, step) ← expectCore "widget step forward" <| Dap.stepIn store1 launch.sessionId
-  let data ← expectCore "widget step inspect" <| Dap.inspectSession store2 launch.sessionId
+  let (store1, launch) ← expectCore "widget step launch" <| ImpLab.launchFromProgramInfo {} info true #[]
+  let (store2, step) ← expectCore "widget step forward" <| ImpLab.stepIn store1 launch.sessionId
+  let data ← expectCore "widget step inspect" <| ImpLab.inspectSession store2 launch.sessionId
   let props := TraceWidgetSessionView.ofSessionData launch.sessionId data step.stopReason
   assertEq "widget step reason propagated" props.stopReason step.stopReason
   assertEq "widget step state pc" props.state.pc 1
@@ -214,12 +214,12 @@ def testStepBackAfterTermination : IO Unit := do
       let x := 1
     }
   ]
-  let (store1, launch) ← expectCore "stepBack term launch" <| Dap.launchFromProgramInfo {} info false #[]
+  let (store1, launch) ← expectCore "stepBack term launch" <| ImpLab.launchFromProgramInfo {} info false #[]
   assertEq "stepBack term launch terminated" launch.terminated true
-  let (store2, back) ← expectCore "stepBack term backward" <| Dap.stepBack store1 launch.sessionId
+  let (store2, back) ← expectCore "stepBack term backward" <| ImpLab.stepBack store1 launch.sessionId
   assertEq "stepBack term reason" back.stopReason "step"
   assertEq "stepBack term terminated false" back.terminated false
-  let data ← expectCore "stepBack term inspect" <| Dap.inspectSession store2 launch.sessionId
+  let data ← expectCore "stepBack term inspect" <| ImpLab.inspectSession store2 launch.sessionId
   assertEq "stepBack term cursor rewound" data.session.currentPc 0
 
 def testWidgetInitProps : IO Unit := do
@@ -326,35 +326,35 @@ def testDebugCoreStepInOut : IO Unit := do
     }
   ]
   let store0 : SessionStore := {}
-  let (store1, launch) ← expectCore "step in/out launch" <| Dap.launchFromProgramInfo store0 info true #[]
+  let (store1, launch) ← expectCore "step in/out launch" <| ImpLab.launchFromProgramInfo store0 info true #[]
   assertEq "step in/out launch reason" launch.stopReason "entry"
   let sessionId := launch.sessionId
-  let (store2, _) ← expectCore "step in/out main step 1" <| Dap.stepIn store1 sessionId
-  let (store3, _) ← expectCore "step in/out enter outer" <| Dap.stepIn store2 sessionId
-  let stackOuter ← expectCore "step in/out stack outer" <| Dap.stackTrace store3 sessionId
+  let (store2, _) ← expectCore "step in/out main step 1" <| ImpLab.stepIn store1 sessionId
+  let (store3, _) ← expectCore "step in/out enter outer" <| ImpLab.stepIn store2 sessionId
+  let stackOuter ← expectCore "step in/out stack outer" <| ImpLab.stackTrace store3 sessionId
   assertEq "step in/out depth after entering outer" stackOuter.totalFrames 2
   assertTrue "step in/out top frame is outer"
     ((stackOuter.stackFrames[0]?.map (·.name.contains "outer")).getD false)
-  let (store4, _) ← expectCore "step in/out enter inner" <| Dap.stepIn store3 sessionId
-  let stackInner ← expectCore "step in/out stack inner" <| Dap.stackTrace store4 sessionId
+  let (store4, _) ← expectCore "step in/out enter inner" <| ImpLab.stepIn store3 sessionId
+  let stackInner ← expectCore "step in/out stack inner" <| ImpLab.stackTrace store4 sessionId
   assertEq "step in/out depth after entering inner" stackInner.totalFrames 3
   assertTrue "step in/out top frame is inner"
     ((stackInner.stackFrames[0]?.map (·.name.contains "inner")).getD false)
-  let (store5, outInner) ← expectCore "step in/out return from inner" <| Dap.stepOut store4 sessionId
+  let (store5, outInner) ← expectCore "step in/out return from inner" <| ImpLab.stepOut store4 sessionId
   assertEq "step in/out return from inner reason" outInner.stopReason "step"
   assertEq "step in/out return from inner terminated" outInner.terminated false
-  let stackAfterInner ← expectCore "step in/out stack after inner" <| Dap.stackTrace store5 sessionId
+  let stackAfterInner ← expectCore "step in/out stack after inner" <| ImpLab.stackTrace store5 sessionId
   assertEq "step in/out depth after inner return" stackAfterInner.totalFrames 2
   assertTrue "step in/out top frame returns to outer"
     ((stackAfterInner.stackFrames[0]?.map (·.name.contains "outer")).getD false)
-  let (store6, outOuter) ← expectCore "step in/out return from outer" <| Dap.stepOut store5 sessionId
+  let (store6, outOuter) ← expectCore "step in/out return from outer" <| ImpLab.stepOut store5 sessionId
   assertEq "step in/out return from outer reason" outOuter.stopReason "step"
   assertEq "step in/out return from outer terminated" outOuter.terminated false
-  let stackAfterOuter ← expectCore "step in/out stack after outer" <| Dap.stackTrace store6 sessionId
+  let stackAfterOuter ← expectCore "step in/out stack after outer" <| ImpLab.stackTrace store6 sessionId
   assertEq "step in/out depth after outer return" stackAfterOuter.totalFrames 1
   assertTrue "step in/out top frame returns to main"
     ((stackAfterOuter.stackFrames[0]?.map (·.name.contains "main")).getD false)
-  let (_store7, outMain) ← expectCore "step in/out return from main" <| Dap.stepOut store6 sessionId
+  let (_store7, outMain) ← expectCore "step in/out return from main" <| ImpLab.stepOut store6 sessionId
   assertEq "step in/out return from main reason" outMain.stopReason "terminated"
   assertEq "step in/out return from main terminated" outMain.terminated true
 
@@ -372,16 +372,16 @@ def testDebugCoreNextStepsOverCall : IO Unit := do
     }
   ]
   let store0 : SessionStore := {}
-  let (store1, launch) ← expectCore "step over launch" <| Dap.launchFromProgramInfo store0 info true #[]
+  let (store1, launch) ← expectCore "step over launch" <| ImpLab.launchFromProgramInfo store0 info true #[]
   assertEq "step over launch reason" launch.stopReason "entry"
   let sessionId := launch.sessionId
-  let (store2, _) ← expectCore "step over next 1" <| Dap.next store1 sessionId
-  let (store3, nextOver) ← expectCore "step over call" <| Dap.next store2 sessionId
+  let (store2, _) ← expectCore "step over next 1" <| ImpLab.next store1 sessionId
+  let (store3, nextOver) ← expectCore "step over call" <| ImpLab.next store2 sessionId
   assertEq "step over call reason" nextOver.stopReason "step"
   assertEq "step over call terminated" nextOver.terminated false
-  let stackAfterCall ← expectCore "step over stack after call" <| Dap.stackTrace store3 sessionId
+  let stackAfterCall ← expectCore "step over stack after call" <| ImpLab.stackTrace store3 sessionId
   assertEq "step over stays in caller frame" stackAfterCall.totalFrames 1
-  let vars ← expectCore "step over vars after call" <| Dap.variables store3 sessionId 1
+  let vars ← expectCore "step over vars after call" <| ImpLab.variables store3 sessionId 1
   assertTrue "step over computed call result in caller"
     (vars.variables.any fun v => v.name == "b" && v.value == "8")
 
@@ -480,19 +480,19 @@ def testDebugCoreFlow : IO Unit := do
   ]
   let bpLine := info.locationToSourceLine { func := Program.mainName, stmtLine := 2 }
   let store0 : SessionStore := {}
-  let (store1, launch) ← expectCore "core launch" <| Dap.launchFromProgramInfo store0 info false #[bpLine]
+  let (store1, launch) ← expectCore "core launch" <| ImpLab.launchFromProgramInfo store0 info false #[bpLine]
   assertEq "core launch stopReason" launch.stopReason "breakpoint"
   assertEq "core launch line" launch.line bpLine
   let sessionId := launch.sessionId
-  let vars1 ← expectCore "core vars" <| Dap.variables store1 sessionId 1
+  let vars1 ← expectCore "core vars" <| ImpLab.variables store1 sessionId 1
   assertTrue "core vars contain x binding"
     (vars1.variables.any fun v => v.name == "x" && v.value == "5")
-  let (store2, cont) ← expectCore "core continue" <| Dap.continueExecution store1 sessionId
+  let (store2, cont) ← expectCore "core continue" <| ImpLab.continueExecution store1 sessionId
   assertEq "core continue terminated" cont.terminated true
   assertEq "core continue stopReason" cont.stopReason "terminated"
-  let (store3, disconnected) := Dap.disconnect store2 sessionId
+  let (store3, disconnected) := ImpLab.disconnect store2 sessionId
   assertEq "core disconnect" disconnected true
-  let pauseAfterDisconnect := Dap.pause store3 sessionId
+  let pauseAfterDisconnect := ImpLab.pause store3 sessionId
   match pauseAfterDisconnect with
   | .ok _ =>
     throw <| IO.userError "core pause after disconnect should fail"
@@ -513,24 +513,24 @@ def testDebugCoreStackFrames : IO Unit := do
     }
   ]
   let store0 : SessionStore := {}
-  let (store1, launch) ← expectCore "stack frames launch" <| Dap.launchFromProgramInfo store0 info true #[]
+  let (store1, launch) ← expectCore "stack frames launch" <| ImpLab.launchFromProgramInfo store0 info true #[]
   assertEq "stack frames launch stopReason" launch.stopReason "entry"
   let sessionId := launch.sessionId
-  let (store2, _) ← expectCore "stack frames next 1" <| Dap.next store1 sessionId
-  let (store3, _) ← expectCore "stack frames next 2" <| Dap.next store2 sessionId
-  let (store4, _) ← expectCore "stack frames stepIn call" <| Dap.stepIn store3 sessionId
-  let stack ← expectCore "stack frames stackTrace" <| Dap.stackTrace store4 sessionId
+  let (store2, _) ← expectCore "stack frames next 1" <| ImpLab.next store1 sessionId
+  let (store3, _) ← expectCore "stack frames next 2" <| ImpLab.next store2 sessionId
+  let (store4, _) ← expectCore "stack frames stepIn call" <| ImpLab.stepIn store3 sessionId
+  let stack ← expectCore "stack frames stackTrace" <| ImpLab.stackTrace store4 sessionId
   assertEq "stack frames total" stack.totalFrames 2
   let top := stack.stackFrames[0]?.getD default
   let caller := stack.stackFrames[1]?.getD default
   assertTrue "stack frames top is callee" (top.name.contains "addMul")
   assertTrue "stack frames caller is main" (caller.name.contains "main")
-  let scopesTop ← expectCore "stack frames scopes top" <| Dap.scopes store4 sessionId 0
+  let scopesTop ← expectCore "stack frames scopes top" <| ImpLab.scopes store4 sessionId 0
   assertEq "stack frames top scope count" scopesTop.scopes.size 1
-  let varsTop ← expectCore "stack frames vars top" <| Dap.variables store4 sessionId 1
+  let varsTop ← expectCore "stack frames vars top" <| ImpLab.variables store4 sessionId 1
   assertTrue "stack frames top vars include x"
     (varsTop.variables.any fun v => v.name == "x" && v.value == "2")
-  let varsCaller ← expectCore "stack frames vars caller" <| Dap.variables store4 sessionId 2
+  let varsCaller ← expectCore "stack frames vars caller" <| ImpLab.variables store4 sessionId 2
   assertTrue "stack frames caller vars include a"
     (varsCaller.variables.any fun v => v.name == "a" && v.value == "2")
 
@@ -541,11 +541,11 @@ def testDebugCoreTerminatedGuards : IO Unit := do
     }
   ]
   let store0 : SessionStore := {}
-  let (store1, launch) ← expectCore "terminated guards launch" <| Dap.launchFromProgramInfo store0 info false #[]
+  let (store1, launch) ← expectCore "terminated guards launch" <| ImpLab.launchFromProgramInfo store0 info false #[]
   assertEq "terminated guards launch terminated" launch.terminated true
   let sessionId := launch.sessionId
-  let nextAfterTerminated := Dap.next store1 sessionId
-  let setBpAfterTerminated := Dap.setBreakpoints store1 sessionId #[1]
+  let nextAfterTerminated := ImpLab.next store1 sessionId
+  let setBpAfterTerminated := ImpLab.setBreakpoints store1 sessionId #[1]
   match nextAfterTerminated with
   | .ok _ =>
     throw <| IO.userError "next should fail on terminated session"
@@ -563,7 +563,7 @@ def testDebugCoreRejectsInvalidProgramInfo : IO Unit := do
   let invalid : ProgramInfo :=
     { program := { functions := #[{ name := "helper", params := #[], body := #[stmt] }] }
       located := #[{ func := "helper", stmtLine := 1, stmt, span }] }
-  let launch := Dap.launchFromProgramInfo (store := {}) invalid true #[]
+  let launch := ImpLab.launchFromProgramInfo (store := {}) invalid true #[]
   match launch with
   | .ok _ =>
     throw <| IO.userError "launch should fail with invalid ProgramInfo"
@@ -571,15 +571,15 @@ def testDebugCoreRejectsInvalidProgramInfo : IO Unit := do
     assertTrue "invalid program info launch error mentions main" (err.contains "main")
 
 def testResolveCandidateDeclNames : IO Unit := do
-  let unqualified := Dap.candidateDeclNames `mainProgram (moduleName? := some `Main)
+  let unqualified := ImpLab.candidateDeclNames `mainProgram (moduleName? := some `Main)
   assertEq "candidate names include local module and examples"
     unqualified
-    #[`mainProgram, `Main.mainProgram, `Dap.Lang.Examples.mainProgram]
-  let dedup := Dap.candidateDeclNames `mainProgram (moduleName? := some `Dap.Lang.Examples)
+    #[`mainProgram, `Main.mainProgram, `ImpLab.Lang.Examples.mainProgram]
+  let dedup := ImpLab.candidateDeclNames `mainProgram (moduleName? := some `ImpLab.Lang.Examples)
   assertEq "candidate names are deduplicated"
     dedup
-    #[`mainProgram, `Dap.Lang.Examples.mainProgram]
-  let qualified := Dap.candidateDeclNames `Main.mainProgram (moduleName? := some `Main)
+    #[`mainProgram, `ImpLab.Lang.Examples.mainProgram]
+  let qualified := ImpLab.candidateDeclNames `Main.mainProgram (moduleName? := some `Main)
   assertEq "qualified names stay unchanged" qualified #[`Main.mainProgram]
 
 def runCoreTests : IO Unit := do
@@ -612,4 +612,4 @@ def runCoreTests : IO Unit := do
   testDebugCoreRejectsInvalidProgramInfo
   testResolveCandidateDeclNames
 
-end Dap.Tests
+end ImpLab.Tests

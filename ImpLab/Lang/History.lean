@@ -4,7 +4,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 Author: Emilio J. Gallego Arias
 -/
 
-namespace Dap.History
+namespace ImpLab.History
 
 def maxCursor (items : Array α) : Nat :=
   items.size - 1
@@ -38,4 +38,4 @@ def forwardCursor (items : Array α) (cursor : Nat) : Nat :=
 def jumpCursor (items : Array α) (cursor : Nat) : Nat :=
   normalizeCursor items cursor
 
-end Dap.History
+end ImpLab.History

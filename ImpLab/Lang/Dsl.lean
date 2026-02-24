@@ -5,13 +5,13 @@ Author: Emilio J. Gallego Arias
 -/
 
 import Lean
-import Dap.Lang.Ast
+import ImpLab.Lang.Ast
 
 open Lean
 open Lean.Elab
 open Lean.Elab.Term
 
-namespace Dap
+namespace ImpLab
 
 declare_syntax_cat dap_rhs
 declare_syntax_cat dap_stmt
@@ -178,4 +178,4 @@ def elabDapProgram : TermElab := fun stx _expectedType? => withRef stx do
   addTermInfo' stx expr (isDisplayableTerm := true)
   pure expr
 
-end Dap
+end ImpLab

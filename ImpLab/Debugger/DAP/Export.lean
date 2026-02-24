@@ -5,13 +5,13 @@ Author: Emilio J. Gallego Arias
 -/
 
 import Lean
-import Dap.Lang.Ast
-import Dap.DAP.Resolve
+import ImpLab.Lang.Ast
+import ImpLab.Debugger.DAP.Resolve
 import examples.Main
 
 open Lean
 
-namespace Dap.Export
+namespace ImpLab.Export
 
 structure CliOptions where
   decl : String := "mainProgram"
@@ -24,13 +24,13 @@ def usage : String := String.intercalate "\n"
     "",
     "Export a DAP payload from a Lean declaration.",
     "",
-    "--decl must point to a Dap.ProgramInfo declaration.",
+    "--decl must point to a ImpLab.ProgramInfo declaration.",
     "",
     "Default: --decl mainProgram",
     "Name resolution for unqualified names tries:",
     "  1) <name>",
     "  2) Main.<name>",
-    "  3) Dap.Lang.Examples.<name>" ]
+    "  3) ImpLab.Lang.Examples.<name>" ]
 
 private def parseArgs : CliOptions → List String → Except String CliOptions
   | opts, [] =>
@@ -55,28 +55,28 @@ private def normalizeDeclName (raw : String) : String :=
 
 private unsafe def evalProgramInfo
     (env : Environment) (opts : Options) (decl : Name) : Except String ProgramInfo := do
-  match env.evalConstCheck ProgramInfo opts ``Dap.ProgramInfo decl with
+  match env.evalConstCheck ProgramInfo opts ``ImpLab.ProgramInfo decl with
   | .ok info =>
     info.validate
   | .error infoErr =>
-    throw s!"Declaration '{decl}' is not Dap.ProgramInfo.\nProgramInfo error: {infoErr}"
+    throw s!"Declaration '{decl}' is not ImpLab.ProgramInfo.\nProgramInfo error: {infoErr}"
 
 private def loadProgramInfoFromDecl (rawDecl : String) : IO ProgramInfo := do
   let sysroot ← Lean.findSysroot
   Lean.initSearchPath sysroot [System.FilePath.mk ".lake/build/lib/lean"]
   let declName ←
-    match Dap.parseDeclName? rawDecl with
+    match ImpLab.parseDeclName? rawDecl with
     | some n => pure n
     | none => throw <| IO.userError s!"Invalid declaration name '{rawDecl}'"
-  let env ← Dap.importProjectEnv
+  let env ← ImpLab.importProjectEnv
   let opts : Options := {}
-  let candidates := Dap.candidateDeclNames declName (moduleName? := some `Main)
-  let resolved? := Dap.resolveFirstDecl? env candidates
+  let candidates := ImpLab.candidateDeclNames declName (moduleName? := some `Main)
+  let resolved? := ImpLab.resolveFirstDecl? env candidates
   let resolved ←
     match resolved? with
     | some n => pure n
     | none =>
-      let attempted := Dap.renderCandidateDecls candidates
+      let attempted := ImpLab.renderCandidateDecls candidates
       throw <| IO.userError s!"Could not resolve declaration '{rawDecl}'. Tried: {attempted}"
   match unsafe evalProgramInfo env opts resolved with
   | .ok info => pure info
@@ -107,4 +107,4 @@ def run (args : List String) : IO Unit := do
   writeJsonFile opts.out content
   IO.println s!"Wrote {opts.out} from {normalizeDeclName opts.decl}"
 
-end Dap.Export
+end ImpLab.Export

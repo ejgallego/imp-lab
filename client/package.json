@@ -1,6 +1,6 @@
 {
   "name": "lean-toy-dap-client",
-  "displayName": "Lean Toy DAP Client",
+  "displayName": "ImpLab Toy DAP Client",
   "description": "Side-loadable VS Code extension for the standalone toydap debug adapter binary.",
   "version": "0.0.1",
   "publisher": "local",
@@ -13,14 +13,14 @@
   ],
   "activationEvents": [
     "onDebug",
-    "onCommand:leanToyDap.startDebugging"
+    "onCommand:impLab.startDebugging"
   ],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
       {
-        "command": "leanToyDap.startDebugging",
-        "title": "Lean Toy DAP: Start Debugging"
+        "command": "impLab.startDebugging",
+        "title": "ImpLab Toy DAP: Start Debugging"
       }
     ],
     "breakpoints": [
@@ -34,7 +34,7 @@
     "debuggers": [
       {
         "type": "lean-toy-dap",
-        "label": "Lean Toy DAP",
+        "label": "ImpLab Toy DAP",
         "languages": [
           "lean",
           "lean4"
@@ -53,7 +53,7 @@
               },
               "programInfo": {
                 "type": "object",
-                "description": "Source-aware payload (`Dap.ProgramInfo`) including function-aware statement spans for source mapping."
+                "description": "Source-aware payload (`ImpLab.ProgramInfo`) including function-aware statement spans for source mapping."
               },
               "toydapPath": {
                 "type": "string",
@@ -75,16 +75,16 @@
         },
         "configurationSnippets": [
           {
-            "label": "Lean Toy DAP",
+            "label": "ImpLab Toy DAP",
             "description": "Debug the toy arithmetic language through the standalone toydap binary",
             "body": {
-              "name": "Lean Toy DAP",
+              "name": "ImpLab Toy DAP",
               "type": "lean-toy-dap",
               "request": "launch",
               "source": "${file}",
               "toydapPath": "${workspaceFolder}/.lake/build/bin/toydap",
               "programInfo": {
-                "...": "Dap.ProgramInfo JSON"
+                "...": "ImpLab.ProgramInfo JSON"
               },
               "stopOnEntry": true
             }

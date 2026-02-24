@@ -60,7 +60,7 @@ class LeanToyDebugConfigurationProvider implements vscode.DebugConfigurationProv
             config.request = 'launch'
         }
         if (!config.name) {
-            config.name = 'Lean Toy DAP'
+            config.name = 'ImpLab Toy DAP'
         }
         if (!config.source) {
             const active = vscode.window.activeTextEditor?.document.uri
@@ -97,7 +97,7 @@ class LeanToyDebugConfigurationProvider implements vscode.DebugConfigurationProv
 }
 
 export function activate(context: vscode.ExtensionContext): void {
-    const output = vscode.window.createOutputChannel('Lean Toy DAP')
+    const output = vscode.window.createOutputChannel('ImpLab Toy DAP')
 
     const configProvider = new LeanToyDebugConfigurationProvider(output)
     const adapterFactory = new LeanToyDebugAdapterFactory(output)
@@ -106,11 +106,11 @@ export function activate(context: vscode.ExtensionContext): void {
         output,
         vscode.debug.registerDebugConfigurationProvider('lean-toy-dap', configProvider),
         vscode.debug.registerDebugAdapterDescriptorFactory('lean-toy-dap', adapterFactory),
-        vscode.commands.registerCommand('leanToyDap.startDebugging', async () => {
+        vscode.commands.registerCommand('impLab.startDebugging', async () => {
             const active = vscode.window.activeTextEditor?.document.uri
             const source = active?.scheme === 'file' ? active.fsPath : undefined
             await vscode.debug.startDebugging(undefined, {
-                name: 'Lean Toy DAP',
+                name: 'ImpLab Toy DAP',
                 type: 'lean-toy-dap',
                 request: 'launch',
                 source,

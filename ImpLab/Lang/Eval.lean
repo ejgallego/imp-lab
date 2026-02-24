@@ -5,9 +5,9 @@ Author: Emilio J. Gallego Arias
 -/
 
 import Lean
-import Dap.Lang.Ast
+import ImpLab.Lang.Ast
 
-namespace Dap
+namespace ImpLab
 
 abbrev Value := Int
 abbrev Env := Lean.RBMap Var Value compare
@@ -218,4 +218,4 @@ def runFrom (program : Program) (start : Context := Context.initial) : Except Ev
 def run (program : Program) : Except EvalError Context :=
   runFrom program
 
-end Dap
+end ImpLab

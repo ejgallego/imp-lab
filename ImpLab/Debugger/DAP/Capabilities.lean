@@ -8,7 +8,7 @@ import Lean
 
 open Lean
 
-namespace Dap
+namespace ImpLab
 
 structure DapCapabilities where
   supportsConfigurationDoneRequest : Bool := true
@@ -19,4 +19,4 @@ structure DapCapabilities where
 def dapCapabilities : DapCapabilities :=
   {}
 
-end Dap
+end ImpLab

@@ -4,7 +4,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 Author: Emilio J. Gallego Arias
 -/
 
-import Dap.DAP.Export
+import ImpLab.Debugger.DAP.Export
 
 def main (args : List String) : IO Unit := do
-  Dap.Export.run args
+  ImpLab.Export.run args

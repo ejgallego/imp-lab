@@ -5,11 +5,11 @@ Author: Emilio J. Gallego Arias
 -/
 
 import Lean
-import Dap.Lang.Ast
+import ImpLab.Lang.Ast
 
 open Lean
 
-namespace Dap
+namespace ImpLab
 
 def decodeProgramInfoJson (json : Json) : Except String ProgramInfo :=
   match (fromJson? json : Except String ProgramInfo) with
@@ -18,4 +18,4 @@ def decodeProgramInfoJson (json : Json) : Except String ProgramInfo :=
   | .error err =>
     throw s!"Invalid 'programInfo' payload: {err}"
 
-end Dap
+end ImpLab

@@ -6,11 +6,11 @@
 - Avoid compatibility shims during refactors; prefer direct clean structure.
 
 ## Main surfaces
-- Runtime: `Dap/Lang/*.lean`
-- Debugger source of truth: `Dap/Debugger/Core.lean`
-- Session semantics: `Dap/Debugger/Session.lean`
-- Lean RPC transport: `Dap/Widget/Server.lean`
-- StdIO DAP transport: `Dap/DAP/Stdio.lean` + `app/ToyDap.lean`
+- Runtime: `ImpLab/Lang/*.lean`
+- Debugger source of truth: `ImpLab/Debugger/Core.lean`
+- Session semantics: `ImpLab/Debugger/Session.lean`
+- Lean RPC transport: `ImpLab/Debugger/Widget/Server.lean`
+- StdIO DAP transport: `ImpLab/Debugger/DAP/Stdio.lean` + `app/ToyDap.lean`
 - VS Code client: `client/`
 
 ## Build/test commands
@@ -21,7 +21,7 @@
 - `cd client && npm run compile`
 
 ## Architecture guardrails
-- Put new debugger behavior in `Dap/Debugger/Core.lean` first, then wire transports.
+- Put new debugger behavior in `ImpLab/Debugger/Core.lean` first, then wire transports.
 - Keep transport files as adapters only; avoid protocol/state duplication.
 - Treat `ProgramInfo` as canonical across launch/debug/export flows.
 - `Program` remains function-only (`functions : Array FuncDef`) with required `main`.
@@ -35,7 +35,7 @@
 - Preserve stable DAP JSON payload shapes.
 
 ## Testing split
-- Core behavior tests: `Dap/Debugger/Core.lean` APIs.
+- Core behavior tests: `ImpLab/Debugger/Core.lean` APIs.
 - Transport tests: framing/serialization + request-to-core wiring.
 - DAP sanity tests: lifecycle ordering + at least one breakpoint hit path.
 

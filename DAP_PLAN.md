@@ -4,7 +4,7 @@ Canonical project guardrails, architecture rules, and validation commands live i
 This file is only for current DAP-facing priorities and open work.
 
 ## Active priorities
-1. Remove any remaining duplicated behavior between `Dap/Widget/Server.lean` and `Dap/DAP/Stdio.lean` by lifting semantics to `Dap/Debugger/Core.lean`.
+1. Remove any remaining duplicated behavior between `ImpLab/Debugger/Widget/Server.lean` and `ImpLab/Debugger/DAP/Stdio.lean` by lifting semantics to `ImpLab/Debugger/Core.lean`.
 2. Keep line/function source mapping explicit and centralized so stack/breakpoint rendering stays consistent.
 3. Preserve strict DAP lifecycle ordering and stable payload shapes for editor compatibility.
 4. Keep docs/examples aligned with `ProgramInfo`-only launch/export flows and `app/` entrypoint layout.

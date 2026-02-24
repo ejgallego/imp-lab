@@ -6,13 +6,13 @@ Author: Emilio J. Gallego Arias
 
 import Lean
 import Lean.Data.Lsp.Communication
-import Dap.Debugger.Core
-import Dap.DAP.Launch
-import Dap.DAP.Capabilities
+import ImpLab.Debugger.Core
+import ImpLab.Debugger.DAP.Launch
+import ImpLab.Debugger.DAP.Capabilities
 
 open Lean
 
-namespace Dap.ToyDap
+namespace ImpLab.Debugger.DAP
 
 structure AdapterState where
   nextSeq : Nat := 1
@@ -118,8 +118,8 @@ private def requireProgramInfo (args : Json) : IO ProgramInfo := do
     | some json => pure json
     | none =>
       throw <| IO.userError
-        "launch requires 'programInfo' (a Dap.ProgramInfo JSON payload)."
-  match Dap.decodeProgramInfoJson programInfoJson with
+        "launch requires 'programInfo' (a ImpLab.ProgramInfo JSON payload)."
+  match ImpLab.decodeProgramInfoJson programInfoJson with
   | .ok programInfo =>
     pure programInfo
   | .error err =>
@@ -169,7 +169,7 @@ private def handleLaunch (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState)
   let activeBreakpoints := if breakpoints.isEmpty then pending else breakpoints
   let st ← stRef.get
   let (core, launch) ←
-    match Dap.launchFromProgramInfo st.core programInfo stopOnEntry activeBreakpoints with
+    match ImpLab.launchFromProgramInfo st.core programInfo stopOnEntry activeBreakpoints with
     | .ok value => pure value
     | .error err => throw <| IO.userError err
   stRef.modify fun st =>
@@ -203,7 +203,7 @@ private def handleSetBreakpoints (stdout : IO.FS.Stream) (stRef : IO.Ref Adapter
     sendResponse stdout stRef req <| Json.mkObj [("breakpoints", breakpoints)]
   | some sessionId =>
     let (core, response) ←
-      match Dap.setBreakpoints st.core sessionId lines with
+      match ImpLab.setBreakpoints st.core sessionId lines with
       | .ok value => pure value
       | .error err => throw <| IO.userError err
     stRef.modify fun st => { st with core }
@@ -212,7 +212,7 @@ private def handleSetBreakpoints (stdout : IO.FS.Stream) (stRef : IO.Ref Adapter
 
 private def handleThreads (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState)
     (req : DapRequest) : IO Unit := do
-  let threads := Dap.threads (← stRef.get).core
+  let threads := ImpLab.threads (← stRef.get).core
   let payload := Json.arr <| threads.threads.map fun t =>
     Json.mkObj [("id", toJson t.id), ("name", toJson t.name)]
   sendResponse stdout stRef req <| Json.mkObj [("threads", payload)]
@@ -225,7 +225,7 @@ private def handleStackTrace (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterStat
   let levels := (args.getObjValAs? Nat "levels").toOption.getD 20
   let st ← stRef.get
   let response ←
-    match Dap.stackTrace st.core sessionId startFrame levels with
+    match ImpLab.stackTrace st.core sessionId startFrame levels with
     | .ok value => pure value
     | .error err => throw <| IO.userError err
   let sourceField? := sourceJson? (st.sourcePathBySession.get? sessionId)
@@ -248,7 +248,7 @@ private def handleScopes (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState)
   let sessionId ← requireSessionId stRef args
   let frameId := (args.getObjValAs? Nat "frameId").toOption.getD 0
   let response ←
-    match Dap.scopes (← stRef.get).core sessionId frameId with
+    match ImpLab.scopes (← stRef.get).core sessionId frameId with
     | .ok value => pure value
     | .error err => throw <| IO.userError err
   let scopes := response.scopes.map fun scope =>
@@ -264,7 +264,7 @@ private def handleVariables (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState
   let sessionId ← requireSessionId stRef args
   let variablesReference := (args.getObjValAs? Nat "variablesReference").toOption.getD 0
   let response ←
-    match Dap.variables (← stRef.get).core sessionId variablesReference with
+    match ImpLab.variables (← stRef.get).core sessionId variablesReference with
     | .ok value => pure value
     | .error err => throw <| IO.userError err
   let variables := response.variables.map fun var =>
@@ -278,7 +278,7 @@ private def handleNext (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState)
     (req : DapRequest) : IO Unit := do
   let sessionId ← requireSessionId stRef (requestArgs req)
   let (core, response) ←
-    match Dap.next (← stRef.get).core sessionId with
+    match ImpLab.next (← stRef.get).core sessionId with
     | .ok value => pure value
     | .error err => throw <| IO.userError err
   stRef.modify fun st => { st with core }
@@ -289,7 +289,7 @@ private def handleStepIn (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState)
     (req : DapRequest) : IO Unit := do
   let sessionId ← requireSessionId stRef (requestArgs req)
   let (core, response) ←
-    match Dap.stepIn (← stRef.get).core sessionId with
+    match ImpLab.stepIn (← stRef.get).core sessionId with
     | .ok value => pure value
     | .error err => throw <| IO.userError err
   stRef.modify fun st => { st with core }
@@ -300,7 +300,7 @@ private def handleStepOut (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState)
     (req : DapRequest) : IO Unit := do
   let sessionId ← requireSessionId stRef (requestArgs req)
   let (core, response) ←
-    match Dap.stepOut (← stRef.get).core sessionId with
+    match ImpLab.stepOut (← stRef.get).core sessionId with
     | .ok value => pure value
     | .error err => throw <| IO.userError err
   stRef.modify fun st => { st with core }
@@ -311,7 +311,7 @@ private def handleStepBack (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState)
     (req : DapRequest) : IO Unit := do
   let sessionId ← requireSessionId stRef (requestArgs req)
   let (core, response) ←
-    match Dap.stepBack (← stRef.get).core sessionId with
+    match ImpLab.stepBack (← stRef.get).core sessionId with
     | .ok value => pure value
     | .error err => throw <| IO.userError err
   stRef.modify fun st => { st with core }
@@ -322,7 +322,7 @@ private def handleContinue (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState)
     (req : DapRequest) : IO Unit := do
   let sessionId ← requireSessionId stRef (requestArgs req)
   let (core, response) ←
-    match Dap.continueExecution (← stRef.get).core sessionId with
+    match ImpLab.continueExecution (← stRef.get).core sessionId with
     | .ok value => pure value
     | .error err => throw <| IO.userError err
   stRef.modify fun st => { st with core }
@@ -336,7 +336,7 @@ private def handlePause (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState)
     (req : DapRequest) : IO Unit := do
   let sessionId ← requireSessionId stRef (requestArgs req)
   let response ←
-    match Dap.pause (← stRef.get).core sessionId with
+    match ImpLab.pause (← stRef.get).core sessionId with
     | .ok value => pure value
     | .error err => throw <| IO.userError err
   sendResponse stdout stRef req
@@ -349,7 +349,7 @@ private def handleDisconnect (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterStat
   let targetSessionId? := (sessionIdFromArgs? args) <|> st.defaultSessionId?
   let core :=
     match targetSessionId? with
-    | some sessionId => (Dap.disconnect st.core sessionId).1
+    | some sessionId => (ImpLab.disconnect st.core sessionId).1
     | none => st.core
   let sourcePathBySession :=
     match targetSessionId? with
@@ -420,4 +420,4 @@ def run : IO Unit := do
   let stRef ← IO.mkRef ({} : AdapterState)
   loop stdin stdout stRef
 
-end Dap.ToyDap
+end ImpLab.Debugger.DAP

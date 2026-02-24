@@ -1,9 +1,9 @@
-name = "dap"
+name = "implab"
 version = "0.1.0"
 defaultTargets = ["toydap", "dap-tests"]
 
 [[lean_lib]]
-name = "Dap"
+name = "ImpLab"
 
 [[lean_lib]]
 name = "examples"

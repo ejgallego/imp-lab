@@ -8,7 +8,7 @@ import Lean
 
 open Lean
 
-namespace Dap
+namespace ImpLab
 
 /-- Variable names in the toy language. -/
 abbrev Var := String
@@ -221,4 +221,4 @@ def locationToSourceLine (info : ProgramInfo) (loc : StmtLocation) : Nat :=
 
 end ProgramInfo
 
-end Dap
+end ImpLab

@@ -2,14 +2,14 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "Generate Toy DAP ProgramInfo",
+      "label": "Generate ImpLab ProgramInfo",
       "type": "process",
       "command": "lake",
       "args": [
         "exe",
         "dap-export",
         "--decl",
-        "Dap.Lang.Examples.mainProgram",
+        "ImpLab.Lang.Examples.mainProgram",
         "--out",
         ".dap/programInfo.generated.json"
       ],

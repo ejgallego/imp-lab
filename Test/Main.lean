@@ -8,6 +8,6 @@ import Test.Core
 import Test.Transport
 
 def main : IO Unit := do
-  Dap.Tests.runCoreTests
-  Dap.Tests.runTransportTests
+  ImpLab.Tests.runCoreTests
+  ImpLab.Tests.runTransportTests
   IO.println "All tests passed."

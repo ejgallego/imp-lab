@@ -5,11 +5,11 @@ Author: Emilio J. Gallego Arias
 -/
 
 import Lean
-import Dap.Widget.Types
+import ImpLab.Debugger.Widget.Types
 
 open Lean Widget
 
-namespace Dap
+namespace ImpLab
 
 @[widget_module]
 def traceExplorerWidget : Widget.Module where
@@ -86,7 +86,7 @@ export default function(props) {
       setBusy(true);
       setError(null);
       try {
-        const launched = await rs.call('Dap.Widget.Server.widgetLaunch', launchParams);
+        const launched = await rs.call('ImpLab.Debugger.Widget.Server.widgetLaunch', launchParams);
         if (!cancelled) {
           sessionIdRef.current = launched.sessionId;
           setSession(launched);
@@ -101,7 +101,7 @@ export default function(props) {
     return () => {
       cancelled = true;
       if (sessionIdRef.current !== null) {
-        rs.call('Dap.Widget.Server.widgetDisconnect', { sessionId: sessionIdRef.current }).catch(() => {});
+        rs.call('ImpLab.Debugger.Widget.Server.widgetDisconnect', { sessionId: sessionIdRef.current }).catch(() => {});
         sessionIdRef.current = null;
       }
     };
@@ -232,9 +232,9 @@ export default function(props) {
         key: 'controls',
         style: { display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '8px' }
       }, [
-        e('button', { key: 'back', onClick: () => control('Dap.Widget.Server.widgetStepBack'), disabled: busy }, 'StepBack'),
-        e('button', { key: 'forward', onClick: () => control('Dap.Widget.Server.widgetStepIn'), disabled: busy }, 'StepIn'),
-        e('button', { key: 'cont', onClick: () => control('Dap.Widget.Server.widgetContinue'), disabled: busy }, 'Continue'),
+        e('button', { key: 'back', onClick: () => control('ImpLab.Debugger.Widget.Server.widgetStepBack'), disabled: busy }, 'StepBack'),
+        e('button', { key: 'forward', onClick: () => control('ImpLab.Debugger.Widget.Server.widgetStepIn'), disabled: busy }, 'StepIn'),
+        e('button', { key: 'cont', onClick: () => control('ImpLab.Debugger.Widget.Server.widgetContinue'), disabled: busy }, 'Continue'),
         e('span', { key: 'status' }, 'status = ' + String(session.stopReason)),
         e('span', { key: 'fn', style: { marginLeft: '8px' } }, 'fn = ' + String(state.functionName)),
         e('span', { key: 'pc', style: { marginLeft: '8px' } }, 'pc = ' + String(state.pc)),
@@ -270,4 +270,4 @@ export default function(props) {
 }
 "
 
-end Dap
+end ImpLab

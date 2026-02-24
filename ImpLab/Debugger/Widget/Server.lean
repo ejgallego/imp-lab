@@ -5,12 +5,12 @@ Author: Emilio J. Gallego Arias
 -/
 
 import Lean
-import Dap.Debugger.Core
-import Dap.Widget.Types
+import ImpLab.Debugger.Core
+import ImpLab.Debugger.Widget.Types
 
 open Lean Lean.Server
 
-namespace Dap.Widget.Server
+namespace ImpLab.Debugger.Widget.Server
 
 initialize dapSessionStoreRef : IO.Ref SessionStore ←
   IO.mkRef { nextId := 1, sessions := {} }
@@ -19,13 +19,13 @@ structure DisconnectResponse where
   disconnected : Bool
   deriving Inhabited, Repr, FromJson, ToJson
 
-abbrev WidgetLaunchParams := Dap.TraceWidgetInitProps
+abbrev WidgetLaunchParams := ImpLab.TraceWidgetInitProps
 
 structure WidgetControlParams where
   sessionId : Nat
   deriving Inhabited, Repr, FromJson, ToJson
 
-abbrev WidgetSessionView := Dap.TraceWidgetSessionView
+abbrev WidgetSessionView := ImpLab.TraceWidgetSessionView
 
 private def mkInvalidParams (message : String) : RequestError :=
   RequestError.invalidParams message
@@ -41,15 +41,15 @@ private def updateStore (store : SessionStore) : IO Unit :=
   dapSessionStoreRef.set store
 
 private def widgetView (sessionId : Nat) (stopReason : String := "entry") : RequestM WidgetSessionView := do
-  let data ← runCoreResult <| Dap.inspectSession (← dapSessionStoreRef.get) sessionId
-  pure <| Dap.TraceWidgetSessionView.ofSessionData sessionId data stopReason
+  let data ← runCoreResult <| ImpLab.inspectSession (← dapSessionStoreRef.get) sessionId
+  pure <| ImpLab.TraceWidgetSessionView.ofSessionData sessionId data stopReason
 
 @[server_rpc_method]
 def widgetLaunch (params : WidgetLaunchParams) : RequestM (RequestTask WidgetSessionView) :=
   RequestM.pureTask do
     let store ← dapSessionStoreRef.get
     let (store, launch) ← runCoreResult <|
-      Dap.launchFromProgramInfo store params.programInfo params.stopOnEntry params.breakpoints
+      ImpLab.launchFromProgramInfo store params.programInfo params.stopOnEntry params.breakpoints
     updateStore store
     widgetView launch.sessionId launch.stopReason
 
@@ -57,7 +57,7 @@ def widgetLaunch (params : WidgetLaunchParams) : RequestM (RequestTask WidgetSes
 def widgetStepIn (params : WidgetControlParams) : RequestM (RequestTask WidgetSessionView) :=
   RequestM.pureTask do
     let store ← dapSessionStoreRef.get
-    let (store, control) ← runCoreResult <| Dap.stepIn store params.sessionId
+    let (store, control) ← runCoreResult <| ImpLab.stepIn store params.sessionId
     updateStore store
     widgetView params.sessionId control.stopReason
 
@@ -65,7 +65,7 @@ def widgetStepIn (params : WidgetControlParams) : RequestM (RequestTask WidgetSe
 def widgetStepBack (params : WidgetControlParams) : RequestM (RequestTask WidgetSessionView) :=
   RequestM.pureTask do
     let store ← dapSessionStoreRef.get
-    let (store, control) ← runCoreResult <| Dap.stepBack store params.sessionId
+    let (store, control) ← runCoreResult <| ImpLab.stepBack store params.sessionId
     updateStore store
     widgetView params.sessionId control.stopReason
 
@@ -73,15 +73,15 @@ def widgetStepBack (params : WidgetControlParams) : RequestM (RequestTask Widget
 def widgetContinue (params : WidgetControlParams) : RequestM (RequestTask WidgetSessionView) :=
   RequestM.pureTask do
     let store ← dapSessionStoreRef.get
-    let (store, control) ← runCoreResult <| Dap.continueExecution store params.sessionId
+    let (store, control) ← runCoreResult <| ImpLab.continueExecution store params.sessionId
     updateStore store
     widgetView params.sessionId control.stopReason
 
 @[server_rpc_method]
 def widgetDisconnect (params : WidgetControlParams) : RequestM (RequestTask DisconnectResponse) :=
   RequestM.pureTask do
-    let (store, disconnected) := Dap.disconnect (← dapSessionStoreRef.get) params.sessionId
+    let (store, disconnected) := ImpLab.disconnect (← dapSessionStoreRef.get) params.sessionId
     updateStore store
     pure { disconnected }
 
-end Dap.Widget.Server
+end ImpLab.Debugger.Widget.Server

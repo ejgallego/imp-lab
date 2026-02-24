@@ -4,10 +4,10 @@ Released under Apache 2.0 license as described in the file LICENSE.
 Author: Emilio J. Gallego Arias
 -/
 
-import Dap.Lang.Eval
-import Dap.Lang.History
+import ImpLab.Lang.Eval
+import ImpLab.Lang.History
 
-namespace Dap
+namespace ImpLab
 
 inductive StopReason where
   | entry
@@ -271,4 +271,4 @@ def initialStop (session : DebugSession) (stopOnEntry : Bool) :
 
 end DebugSession
 
-end Dap
+end ImpLab

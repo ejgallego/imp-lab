@@ -1,4 +1,4 @@
-# dap
+# imp-lab
 
 Lean 4 toy debugger project with:
 - a small function-based toy language,
@@ -34,13 +34,13 @@ code client
 ```
 
 4. In that VS Code window, press `F5` and choose:
-- `Run Lean Toy DAP Extension (watch)` (recommended), or
-- `Run Lean Toy DAP Extension (compile once)`.
+- `Run ImpLab Toy DAP Extension (watch)` (recommended), or
+- `Run ImpLab Toy DAP Extension (compile once)`.
 
 5. In the Extension Development Host that opens:
 - open this repository,
 - open `examples/Main.lean`,
-- run debug config `Toy DAP (auto-export ProgramInfo)` from `.vscode/launch.json`.
+- run debug config `ImpLab Toy DAP (auto-export ProgramInfo)` from `.vscode/launch.json`.
 - if you need to create/edit one manually, see [VS Code launch process and config](#vs-code-launch-process-and-config).
 
 The extension launches `toydap` automatically (default path: `${workspaceFolder}/.lake/build/bin/toydap`).
@@ -53,12 +53,12 @@ In a Lean file:
 
 ```lean
 import Lean
-import Dap.Widget.UI
-import Dap.Widget.Server
-import Dap.Widget.Types
-import Dap.Lang.Dsl
+import ImpLab.Debugger.Widget.UI
+import ImpLab.Debugger.Widget.Server
+import ImpLab.Debugger.Widget.Types
+import ImpLab.Lang.Dsl
 
-open Dap
+open ImpLab
 
 def mainProgram : ProgramInfo := dap%[
   def inc(x) := {
@@ -75,7 +75,7 @@ def mainProgram : ProgramInfo := dap%[
 def mainProps : TraceWidgetInitProps :=
   { programInfo := mainProgram, stopOnEntry := true }
 
-#widget Dap.traceExplorerWidget with Lean.toJson mainProps
+#widget ImpLab.traceExplorerWidget with Lean.toJson mainProps
 ```
 
 The widget launches a live debugger session and shows grouped function code, current function/pc/source location, call stack, and locals while stepping.
@@ -83,7 +83,7 @@ The widget launches a live debugger session and shows grouped function code, cur
 ### Toy language reference
 
 The language has one term elaborator:
-- `dap%[...] : Dap.ProgramInfo`
+- `dap%[...] : ImpLab.ProgramInfo`
 
 `dap%[...]` accepts only function definitions and must include `main()` as entrypoint.
 
@@ -102,7 +102,7 @@ return v
 Example:
 
 ```lean
-def p : Dap.ProgramInfo := dap%[
+def p : ImpLab.ProgramInfo := dap%[
   def addMul(x, y) := {
     let s := add x y,
     let z := mul s y,
@@ -128,7 +128,7 @@ A launch config is a VS Code debug profile (JSON in `launch.json`) that tells VS
 - which inputs to pass (`programInfo`, `source`, `stopOnEntry`, etc.).
 
 Launch flow in this repository:
-1. You run `Toy DAP (auto-export ProgramInfo)` from `.vscode/launch.json`.
+1. You run `ImpLab Toy DAP (auto-export ProgramInfo)` from `.vscode/launch.json`.
 2. Its `preLaunchTask` runs `dap-export` and writes `.dap/programInfo.generated.json`.
 3. The extension launches `toydap`.
 4. If `programInfo` is not inline in launch JSON, the extension auto-loads `.dap/programInfo.generated.json`.
@@ -137,7 +137,7 @@ Minimal config (customize as needed):
 
 ```json
 {
-  "name": "Lean Toy DAP",
+  "name": "ImpLab Toy DAP",
   "type": "lean-toy-dap",
   "request": "launch",
   "source": "${file}",
@@ -157,7 +157,7 @@ Notes:
 Manual export (advanced/internal): generate source-aware JSON from a Lean declaration:
 
 ```bash
-lake exe dap-export --decl Dap.Lang.Examples.mainProgram --out .dap/programInfo.generated.json
+lake exe dap-export --decl ImpLab.Lang.Examples.mainProgram --out .dap/programInfo.generated.json
 ```
 
 Using a different declaration than `mainProgram`:
@@ -168,7 +168,7 @@ lake exe dap-export --decl MyProject.Debugger.lesson1Program --out .dap/programI
 
 Then launch normally from VS Code; the extension will pick up the newly generated `.dap/programInfo.generated.json`.
 
-`--decl` must resolve to a `Dap.ProgramInfo` declaration.
+`--decl` must resolve to an `ImpLab.ProgramInfo` declaration.
 
 `toydap` CLI arguments (`lake exe toydap --help`):
 - No CLI flags are currently supported.
@@ -190,12 +190,12 @@ The interpreter uses explicit call frames:
 
 ### Lean RPC widget methods
 
-Registered in `Dap.Widget.Server`:
-- `Dap.Widget.Server.widgetLaunch`
-- `Dap.Widget.Server.widgetStepIn`
-- `Dap.Widget.Server.widgetStepBack`
-- `Dap.Widget.Server.widgetContinue`
-- `Dap.Widget.Server.widgetDisconnect`
+Registered in `ImpLab.Debugger.Widget.Server`:
+- `ImpLab.Debugger.Widget.Server.widgetLaunch`
+- `ImpLab.Debugger.Widget.Server.widgetStepIn`
+- `ImpLab.Debugger.Widget.Server.widgetStepBack`
+- `ImpLab.Debugger.Widget.Server.widgetContinue`
+- `ImpLab.Debugger.Widget.Server.widgetDisconnect`
 
 `widgetLaunch` accepts `programInfo` plus optional `stopOnEntry` and `breakpoints`.
 
@@ -204,20 +204,20 @@ Registered in `Dap.Widget.Server`:
 - `app/` executables:
   - `app/ToyDap.lean`: stdio DAP adapter entrypoint (`lake exe toydap`).
   - `app/ExportMain.lean`: `ProgramInfo` export CLI (`lake exe dap-export`).
-  - These files are intentional thin entrypoints; logic lives under `Dap/*`.
-- `Dap/Lang/Ast.lean`: core AST (`Program` is a list of functions, entrypoint is `main`).
-- `Dap/Lang/Dsl.lean`: DSL syntax/macros (`dap%[...]`) + infotree metadata.
-- `Dap/Lang/Eval.lean`: environment, call-stack semantics, small-step transition, and full runner.
-- `Dap/Lang/History.lean`: shared cursor/history navigation helpers.
-- `Dap/Lang/Trace.lean`: execution trace and navigation API (`Explorer`).
+  - These files are intentional thin entrypoints; logic lives under `ImpLab/*`.
+- `ImpLab/Lang/Ast.lean`: core AST (`Program` is a list of functions, entrypoint is `main`).
+- `ImpLab/Lang/Dsl.lean`: DSL syntax/macros (`dap%[...]`) + infotree metadata.
+- `ImpLab/Lang/Eval.lean`: environment, call-stack semantics, small-step transition, and full runner.
+- `ImpLab/Lang/History.lean`: shared cursor/history navigation helpers.
+- `ImpLab/Lang/Trace.lean`: execution trace and navigation API (`Explorer`).
 - `examples/Main.lean`: sample program and widget launch props.
-- `Dap/Debugger/Session.lean`: pure debugger session model (breakpoints, continue, next, stepIn, stepOut, stepBack).
-- `Dap/Debugger/Core.lean`: session store + DAP-shaped pure core operations.
-- `Dap/Widget/Server.lean`: Lean server RPC endpoints implementing DAP-like operations.
-- `Dap/DAP/Stdio.lean`: standalone DAP adapter implementation (native DAP protocol over stdio).
-- `Dap/Widget/Types.lean`: widget launch/session view models and session-to-widget projection helpers.
-- `Dap/Widget/UI.lean`: `traceExplorerWidget` module UI.
-- `Dap/DAP/Export.lean`: `dap-export` declaration loader/export logic.
+- `ImpLab/Debugger/Session.lean`: pure debugger session model (breakpoints, continue, next, stepIn, stepOut, stepBack).
+- `ImpLab/Debugger/Core.lean`: session store + DAP-shaped pure core operations.
+- `ImpLab/Debugger/Widget/Server.lean`: Lean server RPC endpoints implementing DAP-like operations.
+- `ImpLab/Debugger/DAP/Stdio.lean`: standalone DAP adapter implementation (native DAP protocol over stdio).
+- `ImpLab/Debugger/Widget/Types.lean`: widget launch/session view models and session-to-widget projection helpers.
+- `ImpLab/Debugger/Widget/UI.lean`: `traceExplorerWidget` module UI.
+- `ImpLab/Debugger/DAP/Export.lean`: `dap-export` declaration loader/export logic.
 - `Test/Core.lean`: core/runtime/debugger tests.
 - `Test/Transport.lean`: DAP stdio transport lifecycle/framing tests.
 - `Test/Main.lean`: test runner executable.

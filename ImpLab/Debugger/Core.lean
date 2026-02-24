@@ -5,11 +5,11 @@ Author: Emilio J. Gallego Arias
 -/
 
 import Lean
-import Dap.Debugger.Session
+import ImpLab.Debugger.Session
 
 open Lean
 
-namespace Dap
+namespace ImpLab
 
 inductive SessionStatus where
   | stopped
@@ -322,4 +322,4 @@ def disconnect (store : SessionStore) (sessionId : Nat) : SessionStore × Bool :
 def inspectSession (store : SessionStore) (sessionId : Nat) : Except String SessionData :=
   getSessionData store sessionId
 
-end Dap
+end ImpLab

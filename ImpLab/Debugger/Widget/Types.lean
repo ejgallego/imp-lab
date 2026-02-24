@@ -5,11 +5,11 @@ Author: Emilio J. Gallego Arias
 -/
 
 import Lean
-import Dap.Debugger.Core
+import ImpLab.Debugger.Core
 
 open Lean
 
-namespace Dap
+namespace ImpLab
 
 structure ProgramLineView where
   functionName : String
@@ -97,4 +97,4 @@ def TraceWidgetSessionView.ofSessionData
     stopReason
     terminated := data.status = .terminated || data.session.atEnd }
 
-end Dap
+end ImpLab

@@ -2,15 +2,15 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Toy DAP (auto-export ProgramInfo)",
+      "name": "ImpLab Toy DAP (auto-export ProgramInfo)",
       "type": "lean-toy-dap",
       "request": "launch",
       "source": "${workspaceFolder}/examples/Main.lean",
       "stopOnEntry": true,
-      "preLaunchTask": "Generate Toy DAP ProgramInfo"
+      "preLaunchTask": "Generate ImpLab ProgramInfo"
     },
     {
-      "name": "Toy DAP (sample ProgramInfo fallback)",
+      "name": "ImpLab Toy DAP (sample ProgramInfo fallback)",
       "type": "lean-toy-dap",
       "request": "launch",
       "source": "${file}",

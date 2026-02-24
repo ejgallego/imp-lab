@@ -6,10 +6,10 @@ Author: Emilio J. Gallego Arias
 
 import Test.Util
 
-open Dap
+open ImpLab
 open Lean
 
-namespace Dap.Tests
+namespace ImpLab.Tests
 
 private def encodeDapRequest (seq : Nat) (command : String) (arguments : Json := Json.mkObj []) : String :=
   let payload := Json.mkObj
@@ -44,11 +44,11 @@ private def appearsBefore (s first second : String) : Bool :=
 
 private def launchArgs (stopOnEntry : Bool) : Json :=
   Json.mkObj
-    [ ("programInfo", toJson Dap.Lang.Examples.mainProgram),
+    [ ("programInfo", toJson ImpLab.Lang.Examples.mainProgram),
       ("stopOnEntry", toJson stopOnEntry) ]
 
 private def bumpEntryLine : Nat :=
-  Dap.Lang.Examples.mainProgram.locationToSourceLine { func := "bump", stmtLine := 1 }
+  ImpLab.Lang.Examples.mainProgram.locationToSourceLine { func := "bump", stmtLine := 1 }
 
 def testToyDapProtocolSanity : IO Unit := do
   let stdinPayload :=
@@ -239,4 +239,4 @@ def runTransportTests : IO Unit := do
   testToyDapLaunchTerminatesOrder
   testToyDapDisconnectCanTargetSessionId
 
-end Dap.Tests
+end ImpLab.Tests

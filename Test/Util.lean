@@ -4,9 +4,9 @@ Released under Apache 2.0 license as described in the file LICENSE.
 Author: Emilio J. Gallego Arias
 -/
 
-import Dap
+import ImpLab
 
-namespace Dap.Tests
+namespace ImpLab.Tests
 
 def assertEq [BEq α] [ToString α] (label : String) (actual expected : α) : IO Unit := do
   if actual == expected then
@@ -32,4 +32,4 @@ def expectCore (label : String) (result : Except String α) : IO α := do
   | .error err =>
     throw <| IO.userError s!"{label}: {err}"
 
-end Dap.Tests
+end ImpLab.Tests
