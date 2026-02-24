@@ -25,6 +25,8 @@ structure SessionData where
   session : DebugSession
   programInfo : ProgramInfo
   status : SessionStatus := .stopped
+  exceptionBreakpointsEnabled : Bool := false
+  lastException? : Option EvalError := none
   deriving Repr
 
 structure SessionStore where
@@ -63,6 +65,7 @@ structure ControlResponse where
   line : Nat
   stopReason : String
   terminated : Bool
+  description? : Option String := none
   deriving Inhabited, Repr, FromJson, ToJson
 
 structure StackFrameView where
@@ -95,6 +98,26 @@ structure VariableView where
 
 structure VariablesResponse where
   variables : Array VariableView
+  deriving Inhabited, Repr, FromJson, ToJson
+
+structure EvaluateResponse where
+  result : String
+  variablesReference : Nat := 0
+  deriving Inhabited, Repr, FromJson, ToJson
+
+structure SetVariableResponse where
+  value : String
+  variablesReference : Nat := 0
+  deriving Inhabited, Repr, FromJson, ToJson
+
+structure SetExceptionBreakpointsResponse where
+  enabled : Bool
+  deriving Inhabited, Repr, FromJson, ToJson
+
+structure ExceptionInfoResponse where
+  exceptionId : String
+  description? : Option String := none
+  breakMode : String := "always"
   deriving Inhabited, Repr, FromJson, ToJson
 
 private def getSessionData (store : SessionStore) (sessionId : Nat) : Except String SessionData :=
@@ -164,7 +187,15 @@ private def stackFrameAt? (session : DebugSession) (frameId : Nat) : Option Call
 private def frameSourceLine (info : ProgramInfo) (session : DebugSession) (frame : CallFrame) : Nat :=
   info.locationToSourceLine (session.frameLocation frame)
 
-private def mkControlResponse (data : SessionData) (reason : StopReason) : ControlResponse :=
+private def requireStackFrame (session : DebugSession) (frameId : Nat) : Except String CallFrame := do
+  match stackFrameAt? session frameId with
+  | some frame => pure frame
+  | none => throw s!"Unknown stack frame id: {frameId}"
+
+private def mkControlResponse
+    (data : SessionData)
+    (reason : StopReason)
+    (description? : Option String := none) : ControlResponse :=
   let session := data.session
   let line :=
     match stackFrameAt? session 0 with
@@ -172,7 +203,100 @@ private def mkControlResponse (data : SessionData) (reason : StopReason) : Contr
     | none => 1
   { line
     stopReason := toString reason
-    terminated := session.atEnd || reason = .terminated }
+    terminated := session.atEnd || reason = .terminated
+    description? }
+
+private def evalErrorId (err : EvalError) : String :=
+  match err with
+  | .unboundVar _ => "unboundVar"
+  | .unknownFunction _ => "unknownFunction"
+  | .arityMismatch .. => "arityMismatch"
+  | .missingReturn _ => "missingReturn"
+  | .divByZero .. => "divByZero"
+  | .invalidPc .. => "invalidPc"
+  | .outOfFuel _ => "outOfFuel"
+
+private def tokenizeExpression (expression : String) : Array String :=
+  ((expression.trimAscii.toString.splitOn " ").filter (· != "")).toArray
+
+private def parseBinOpToken? (token : String) : Option BinOp :=
+  match token with
+  | "+" => some .add
+  | "-" => some .sub
+  | "*" => some .mul
+  | "/" => some .div
+  | "add" => some .add
+  | "sub" => some .sub
+  | "mul" => some .mul
+  | "div" => some .div
+  | _ => none
+
+private def evalToken (env : Env) (token : String) : Except String Int :=
+  match token.toInt? with
+  | some value =>
+    pure value
+  | none =>
+    match env.find? token with
+    | some value => pure value
+    | none => throw s!"Unknown variable '{token}'"
+
+private def evalBinExpr (op : BinOp) (lhs rhs : Int) : Except String Int :=
+  match evalBinOp op lhs rhs with
+  | .ok value => pure value
+  | .error err => throw (toString err)
+
+private def evalExpression (env : Env) (expression : String) : Except String Int := do
+  let tokens := tokenizeExpression expression
+  match tokens.size with
+  | 0 =>
+    throw "evaluate requires a non-empty expression"
+  | 1 =>
+    evalToken env tokens[0]!
+  | 3 =>
+    let t0 := tokens[0]!
+    let t1 := tokens[1]!
+    let t2 := tokens[2]!
+    match parseBinOpToken? t0 with
+    | some op =>
+      let lhs ← evalToken env t1
+      let rhs ← evalToken env t2
+      evalBinExpr op lhs rhs
+    | none =>
+      match parseBinOpToken? t1 with
+      | some op =>
+        let lhs ← evalToken env t0
+        let rhs ← evalToken env t2
+        evalBinExpr op lhs rhs
+      | none =>
+        throw s!"Unsupported expression form '{expression}'"
+  | _ =>
+    throw s!"Unsupported expression form '{expression}'"
+
+private def updateSessionContext (session : DebugSession) (ctx : Context) : DebugSession :=
+  let session := session.normalize
+  { session with history := (session.history.extract 0 session.cursor).push ctx }
+
+private def updateFrameEnv
+    (session : DebugSession)
+    (frameId : Nat)
+    (f : Env → Except String Env) : Except String DebugSession := do
+  let session := session.normalize
+  let some ctx := session.current?
+    | throw "Session has no active frame"
+  let framesDisplay := ctx.frames.reverse
+  if h : frameId < framesDisplay.size then
+    let frame := framesDisplay[frameId]'h
+    let updatedEnv ← f frame.env
+    let updatedFrame : CallFrame := { frame with env := updatedEnv }
+    let updatedDisplay := framesDisplay.set frameId updatedFrame
+    let updatedFrames := updatedDisplay.reverse
+    let some current := updatedFrames.back?
+      | throw "Session has no active frame"
+    let callers := updatedFrames.pop
+    let updatedCtx : Context := { current, callers }
+    pure <| updateSessionContext session updatedCtx
+  else
+    throw s!"Unknown stack frame id: {frameId}"
 
 def launchFromProgramInfo
     (store : SessionStore)
@@ -219,6 +343,17 @@ def setBreakpoints
   let views := breakpoints.map (mkBreakpointView data.programInfo)
   pure (store, { breakpoints := views })
 
+def setExceptionBreakpoints
+    (store : SessionStore)
+    (sessionId : Nat)
+    (filters : Array String) : Except String (SessionStore × SetExceptionBreakpointsResponse) := do
+  let data ← getSessionData store sessionId
+  ensureControllable data sessionId
+  let enabled := !filters.isEmpty
+  let data := { data with exceptionBreakpointsEnabled := enabled, lastException? := none }
+  let store := putSessionData store sessionId data
+  pure (store, { enabled })
+
 def threads (_store : SessionStore) : ThreadsResponse :=
   { threads := #[{ id := 1, name := "main" }] }
 
@@ -226,33 +361,42 @@ private def applyControl
     (store : SessionStore)
     (sessionId : Nat)
     (allowTerminated : Bool := false)
-    (f : DebugSession → Except EvalError (DebugSession × StopReason)) :
+    (f : DebugSession → Except DebugSession.ControlFailure (DebugSession × StopReason)) :
     Except String (SessionStore × ControlResponse) := do
   let data ← getSessionData store sessionId
   if !allowTerminated then
     ensureControllable data sessionId
-  let (session, reason) ←
-    match f data.session with
-    | .ok value => pure value
-    | .error err => throw s!"Debug operation failed: {err}"
-  let data := { data with session, status := statusFromStopReason reason }
-  let store := putSessionData store sessionId data
-  pure (store, mkControlResponse data reason)
+  match f data.session with
+  | .ok (session, reason) =>
+    let data := { data with session, status := statusFromStopReason reason, lastException? := none }
+    let store := putSessionData store sessionId data
+    pure (store, mkControlResponse data reason)
+  | .error (failedSession, err) =>
+    if data.exceptionBreakpointsEnabled then
+      let data :=
+        { data with
+          session := failedSession
+          status := .stopped
+          lastException? := some err }
+      let store := putSessionData store sessionId data
+      pure (store, mkControlResponse data .exception (description? := some (toString err)))
+    else
+      throw s!"Debug operation failed: {err}"
 
 def next (store : SessionStore) (sessionId : Nat) : Except String (SessionStore × ControlResponse) :=
-  applyControl store sessionId (f := DebugSession.next)
+  applyControl store sessionId (f := DebugSession.nextWithState)
 
 def stepIn (store : SessionStore) (sessionId : Nat) : Except String (SessionStore × ControlResponse) :=
-  applyControl store sessionId (f := DebugSession.stepIn)
+  applyControl store sessionId (f := DebugSession.stepInWithState)
 
 def stepOut (store : SessionStore) (sessionId : Nat) : Except String (SessionStore × ControlResponse) :=
-  applyControl store sessionId (f := DebugSession.stepOut)
+  applyControl store sessionId (f := DebugSession.stepOutWithState)
 
 def stepBack (store : SessionStore) (sessionId : Nat) : Except String (SessionStore × ControlResponse) :=
   applyControl store sessionId (allowTerminated := true) (fun s => pure (DebugSession.stepBack s))
 
 def continueExecution (store : SessionStore) (sessionId : Nat) : Except String (SessionStore × ControlResponse) :=
-  applyControl store sessionId (f := DebugSession.continueExecution)
+  applyControl store sessionId (f := DebugSession.continueExecutionWithState)
 
 def pause (store : SessionStore) (sessionId : Nat) : Except String ControlResponse := do
   let data ← getSessionData store sessionId
@@ -313,6 +457,49 @@ def variables
         frame.env.toArray.map fun (name, value) =>
           { name, value := toString value : VariableView }
       pure { variables }
+
+def evaluate
+    (store : SessionStore)
+    (sessionId : Nat)
+    (expression : String)
+    (frameId : Nat := 0) : Except String EvaluateResponse := do
+  let data ← getSessionData store sessionId
+  ensureControllable data sessionId
+  let frame ← requireStackFrame data.session frameId
+  let value ← evalExpression frame.env expression
+  pure { result := toString value }
+
+def setVariable
+    (store : SessionStore)
+    (sessionId : Nat)
+    (variablesReference : Nat)
+    (name : String)
+    (valueExpression : String) : Except String (SessionStore × SetVariableResponse) := do
+  let data ← getSessionData store sessionId
+  ensureControllable data sessionId
+  if variablesReference = 0 then
+    throw "setVariable requires variablesReference > 0"
+  let frameId := variablesReference - 1
+  let frame ← requireStackFrame data.session frameId
+  if (frame.env.find? name).isNone then
+    throw s!"Unknown variable '{name}' in selected frame"
+  let value ← evalExpression frame.env valueExpression
+  let session ←
+    updateFrameEnv data.session frameId fun env =>
+      pure <| env.insert name value
+  let data := { data with session, lastException? := none }
+  let store := putSessionData store sessionId data
+  pure (store, { value := toString value })
+
+def exceptionInfo (store : SessionStore) (sessionId : Nat) : Except String ExceptionInfoResponse := do
+  let data ← getSessionData store sessionId
+  ensureControllable data sessionId
+  let some err := data.lastException?
+    | throw s!"No exception information available for session {sessionId}"
+  pure
+    { exceptionId := evalErrorId err
+      description? := some (toString err)
+      breakMode := "always" }
 
 def disconnect (store : SessionStore) (sessionId : Nat) : SessionStore × Bool :=
   let existed := (store.sessions.get? sessionId).isSome

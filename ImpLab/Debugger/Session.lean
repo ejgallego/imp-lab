@@ -13,6 +13,7 @@ inductive StopReason where
   | entry
   | step
   | breakpoint
+  | exception
   | pause
   | terminated
   deriving Repr, BEq, DecidableEq, Inhabited
@@ -22,6 +23,7 @@ instance : ToString StopReason where
     | .entry => "entry"
     | .step => "step"
     | .breakpoint => "breakpoint"
+    | .exception => "exception"
     | .pause => "pause"
     | .terminated => "terminated"
 
@@ -162,16 +164,20 @@ private def advanceOne (session : DebugSession) : Except EvalError (DebugSession
         else
           pure (nextSession, .step)
 
-def stepIn (session : DebugSession) : Except EvalError (DebugSession × StopReason) :=
-  advanceOne session
+abbrev ControlFailure := DebugSession × EvalError
 
-def next (session : DebugSession) : Except EvalError (DebugSession × StopReason) := do
+def stepInWithState (session : DebugSession) : Except ControlFailure (DebugSession × StopReason) :=
+  match advanceOne session with
+  | .ok value => .ok value
+  | .error err => .error (session.normalize, err)
+
+def nextWithState (session : DebugSession) : Except ControlFailure (DebugSession × StopReason) := do
   let session := session.normalize
   if session.atEnd then
     pure (session, .terminated)
   else
     let startDepth := session.currentCallDepth
-    let (session, reason) ← session.stepIn
+    let (session, reason) ← session.stepInWithState
     match reason with
     | .terminated =>
       pure (session, .terminated)
@@ -182,11 +188,11 @@ def next (session : DebugSession) : Except EvalError (DebugSession × StopReason
         pure (session, .breakpoint)
       else
         let fuel := session.program.defaultFuel
-        let rec go : Nat → DebugSession → Except EvalError (DebugSession × StopReason)
+        let rec go : Nat → DebugSession → Except ControlFailure (DebugSession × StopReason)
           | 0, s =>
             pure (s, .pause)
           | fuel' + 1, s => do
-            let (s, reason) ← s.stepIn
+            let (s, reason) ← s.stepInWithState
             match reason with
             | .terminated =>
               pure (s, .terminated)
@@ -210,17 +216,17 @@ def stepBack (session : DebugSession) : DebugSession × StopReason :=
   else
     ({ session with cursor := History.backCursor session.history session.cursor }, .step)
 
-def continueExecution (session : DebugSession) : Except EvalError (DebugSession × StopReason) := do
+def continueExecutionWithState (session : DebugSession) : Except ControlFailure (DebugSession × StopReason) := do
   let session := session.normalize
   if session.atEnd then
     pure (session, .terminated)
   else
     let fuel := session.program.defaultFuel
-    let rec go : Nat → DebugSession → Except EvalError (DebugSession × StopReason)
+    let rec go : Nat → DebugSession → Except ControlFailure (DebugSession × StopReason)
       | 0, s =>
         pure (s, .pause)
       | fuel' + 1, s => do
-        let (s, reason) ← s.stepIn
+        let (s, reason) ← s.stepInWithState
         match reason with
         | .terminated =>
           pure (s, .terminated)
@@ -231,21 +237,21 @@ def continueExecution (session : DebugSession) : Except EvalError (DebugSession 
             go fuel' s
     go fuel session
 
-def stepOut (session : DebugSession) : Except EvalError (DebugSession × StopReason) := do
+def stepOutWithState (session : DebugSession) : Except ControlFailure (DebugSession × StopReason) := do
   let session := session.normalize
   if session.atEnd then
     pure (session, .terminated)
   else
     let startDepth := session.currentCallDepth
     if startDepth ≤ 1 then
-      session.continueExecution
+      session.continueExecutionWithState
     else
       let fuel := session.program.defaultFuel
-      let rec go : Nat → DebugSession → Except EvalError (DebugSession × StopReason)
+      let rec go : Nat → DebugSession → Except ControlFailure (DebugSession × StopReason)
         | 0, s =>
           pure (s, .pause)
         | fuel' + 1, s => do
-          let (s, reason) ← s.stepIn
+          let (s, reason) ← s.stepInWithState
           match reason with
           | .terminated =>
             pure (s, .terminated)
@@ -258,6 +264,26 @@ def stepOut (session : DebugSession) : Except EvalError (DebugSession × StopRea
             else
               go fuel' s
       go fuel session
+
+def stepIn (session : DebugSession) : Except EvalError (DebugSession × StopReason) :=
+  match session.stepInWithState with
+  | .ok value => .ok value
+  | .error (_, err) => .error err
+
+def next (session : DebugSession) : Except EvalError (DebugSession × StopReason) :=
+  match session.nextWithState with
+  | .ok value => .ok value
+  | .error (_, err) => .error err
+
+def continueExecution (session : DebugSession) : Except EvalError (DebugSession × StopReason) :=
+  match session.continueExecutionWithState with
+  | .ok value => .ok value
+  | .error (_, err) => .error err
+
+def stepOut (session : DebugSession) : Except EvalError (DebugSession × StopReason) :=
+  match session.stepOutWithState with
+  | .ok value => .ok value
+  | .error (_, err) => .error err
 
 def initialStop (session : DebugSession) (stopOnEntry : Bool) :
     Except EvalError (DebugSession × StopReason) := do

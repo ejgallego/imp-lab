@@ -42,13 +42,76 @@ private def appearsBefore (s first second : String) : Bool :=
     let afterFirst := String.intercalate first tail
     afterFirst.contains second
 
+private def transportProgramInfo : ProgramInfo := imp%[
+  def bump(x) := {
+    let one := 1,
+    let out := add x one,
+    return out
+  },
+  def scaleAndShift(x, factor) := {
+    let scaled := mul x factor,
+    let shift := 2,
+    let out := add scaled shift,
+    return out
+  },
+  def main() := {
+    let seed := 5,
+    let factor := 3,
+    let bumped := call bump(seed),
+    let out := call scaleAndShift(bumped, factor)
+  }
+]
+
 private def launchArgs (stopOnEntry : Bool) : Json :=
   Json.mkObj
-    [ ("programInfo", toJson ImpLab.Lang.Examples.mainProgram),
+    [ ("programInfo", toJson transportProgramInfo),
+      ("stopOnEntry", toJson stopOnEntry) ]
+
+private def exceptionProgramInfo : ProgramInfo := imp%[
+  def main() := {
+    let x := 10,
+    let y := 0,
+    let z := div x y
+  }
+]
+
+private def exceptionLaunchArgs (stopOnEntry : Bool) : Json :=
+  Json.mkObj
+    [ ("programInfo", toJson exceptionProgramInfo),
+      ("stopOnEntry", toJson stopOnEntry) ]
+
+private def failingTransportProgramInfo : ProgramInfo := imp%[
+  def bump(x) := {
+    let one := 1,
+    let out := add x one,
+    return out
+  },
+  def scaleAndShift(x, factor) := {
+    let scaled := mul x factor,
+    let uh := 0,
+    let mayfail := div scaled uh,
+    let shift := 2,
+    let out := add scaled shift,
+    return out
+  },
+  def main() := {
+    let seed := 5,
+    let factor := 3,
+    let bumped := call bump(seed),
+    let out := call scaleAndShift(bumped, factor)
+  }
+]
+
+private def failingLaunchArgs (stopOnEntry : Bool) : Json :=
+  Json.mkObj
+    [ ("programInfo", toJson failingTransportProgramInfo),
       ("stopOnEntry", toJson stopOnEntry) ]
 
 private def bumpEntryLine : Nat :=
-  ImpLab.Lang.Examples.mainProgram.locationToSourceLine { func := "bump", stmtLine := 1 }
+  transportProgramInfo.locationToSourceLine { func := "bump", stmtLine := 1 }
+
+private def mainEntryLine : Nat :=
+  transportProgramInfo.locationToSourceLine { func := Program.mainName, stmtLine := 1 }
 
 def testToyDapProtocolSanity : IO Unit := do
   let stdinPayload :=
@@ -77,7 +140,7 @@ def testToyDapBreakpointProtocol : IO Unit := do
     String.intercalate ""
       [ encodeDapRequest 1 "initialize",
         encodeDapRequest 2 "setBreakpoints" <| Json.mkObj
-          [ ("breakpoints", Json.arr #[Json.mkObj [("line", toJson (22 : Nat))]]) ],
+          [ ("breakpoints", Json.arr #[Json.mkObj [("line", toJson mainEntryLine)]]) ],
         encodeDapRequest 3 "launch" <| launchArgs false,
         encodeDapRequest 4 "disconnect" ]
   let stdout ← runToyDapPayload "toydap.breakpoint" stdinPayload
@@ -175,6 +238,164 @@ def testToyDapNextCanStopAtCalleeBreakpoint : IO Unit := do
   assertTrue "callee-breakpoint flow stops in bump frame"
     (stdout.contains "\"name\":\"bump:")
 
+def testToyDapEvaluateAndSetVariable : IO Unit := do
+  let stdinPayload :=
+    String.intercalate ""
+      [ encodeDapRequest 1 "initialize",
+        encodeDapRequest 2 "launch" <| launchArgs true,
+        encodeDapRequest 3 "next",
+        encodeDapRequest 4 "evaluate" <| Json.mkObj [("expression", toJson "seed")],
+        encodeDapRequest 5 "setVariable" <| Json.mkObj
+          [ ("variablesReference", toJson (1 : Nat)),
+            ("name", toJson "seed"),
+            ("value", toJson "10") ],
+        encodeDapRequest 6 "evaluate" <| Json.mkObj [("expression", toJson "seed + 1")],
+        encodeDapRequest 7 "disconnect" ]
+  let stdout ← runToyDapPayload "toydap.evaluate.setvariable" stdinPayload
+  assertTrue "evaluate response present"
+    (stdout.contains "\"request_seq\":4" && stdout.contains "\"command\":\"evaluate\"")
+  assertTrue "evaluate reads pre-mutation value"
+    (stdout.contains "\"result\":\"5\"")
+  assertTrue "setVariable response present"
+    (stdout.contains "\"request_seq\":5" && stdout.contains "\"command\":\"setVariable\"")
+  assertTrue "setVariable reports updated value"
+    (stdout.contains "\"value\":\"10\"")
+  assertTrue "second evaluate response present"
+    (stdout.contains "\"request_seq\":6" && stdout.contains "\"command\":\"evaluate\"")
+  assertTrue "second evaluate observes mutation"
+    (stdout.contains "\"result\":\"11\"")
+  assertTrue "mutation result appears after setVariable response payload"
+    (appearsBefore stdout "\"value\":\"10\"" "\"result\":\"11\"")
+
+def testToyDapEvaluateAndSetVariableAcrossFrames : IO Unit := do
+  let stdinPayload :=
+    String.intercalate ""
+      [ encodeDapRequest 1 "initialize",
+        encodeDapRequest 2 "launch" <| launchArgs true,
+        encodeDapRequest 3 "next",
+        encodeDapRequest 4 "next",
+        encodeDapRequest 5 "stepIn",
+        encodeDapRequest 6 "evaluate" <| Json.mkObj [("expression", toJson "seed")],
+        encodeDapRequest 7 "evaluate" <| Json.mkObj
+          [ ("expression", toJson "seed"),
+            ("frameId", toJson (1 : Nat)) ],
+        encodeDapRequest 8 "setVariable" <| Json.mkObj
+          [ ("variablesReference", toJson (2 : Nat)),
+            ("name", toJson "seed"),
+            ("value", toJson "10") ],
+        encodeDapRequest 9 "evaluate" <| Json.mkObj
+          [ ("expression", toJson "seed + factor"),
+            ("frameId", toJson (1 : Nat)) ],
+        encodeDapRequest 10 "evaluate" <| Json.mkObj [("expression", toJson "x")],
+        encodeDapRequest 11 "disconnect" ]
+  let stdout ← runToyDapPayload "toydap.evaluate.setvariable.frames" stdinPayload
+  assertTrue "frame 0 evaluate missing caller variable reports error"
+    (stdout.contains "\"request_seq\":6" &&
+      stdout.contains "Unknown variable 'seed'")
+  assertTrue "frame 1 evaluate sees caller variable"
+    (stdout.contains "\"request_seq\":7" &&
+      stdout.contains "\"result\":\"5\"")
+  assertTrue "setVariable on caller frame response present"
+    (stdout.contains "\"request_seq\":8" &&
+      stdout.contains "\"command\":\"setVariable\"" &&
+      stdout.contains "\"value\":\"10\"")
+  assertTrue "frame 1 evaluate observes caller mutation"
+    (stdout.contains "\"request_seq\":9" &&
+      stdout.contains "\"result\":\"13\"")
+  assertTrue "frame 0 evaluate still reads callee locals"
+    (stdout.contains "\"request_seq\":10" &&
+      stdout.contains "\"result\":\"5\"")
+  assertTrue "caller mutation appears before frame-1 post-mutation evaluate result"
+    (appearsBefore stdout "\"value\":\"10\"" "\"result\":\"13\"")
+
+def testToyDapEvaluateAndSetVariableNegativePaths : IO Unit := do
+  let stdinPayload :=
+    String.intercalate ""
+      [ encodeDapRequest 1 "initialize",
+        encodeDapRequest 2 "launch" <| launchArgs true,
+        encodeDapRequest 3 "next",
+        encodeDapRequest 4 "evaluate" <| Json.mkObj [],
+        encodeDapRequest 5 "evaluate" <| Json.mkObj [("expression", toJson "seed"), ("frameId", toJson (99 : Nat))],
+        encodeDapRequest 6 "setVariable" <| Json.mkObj [("name", toJson "seed"), ("value", toJson "10")],
+        encodeDapRequest 7 "setVariable" <| Json.mkObj
+          [ ("variablesReference", toJson (0 : Nat)),
+            ("name", toJson "seed"),
+            ("value", toJson "10") ],
+        encodeDapRequest 8 "setVariable" <| Json.mkObj
+          [ ("variablesReference", toJson (1 : Nat)),
+            ("name", toJson "seed"),
+            ("value", toJson "missing + 1") ],
+        encodeDapRequest 9 "disconnect" ]
+  let stdout ← runToyDapPayload "toydap.evaluate.setvariable.negative" stdinPayload
+  assertTrue "evaluate missing expression rejects request"
+    (stdout.contains "\"request_seq\":4" &&
+      stdout.contains "evaluate requires arguments.expression")
+  assertTrue "evaluate invalid frame rejects request"
+    (stdout.contains "\"request_seq\":5" &&
+      stdout.contains "Unknown stack frame id: 99")
+  assertTrue "setVariable missing variablesReference rejects request"
+    (stdout.contains "\"request_seq\":6" &&
+      stdout.contains "setVariable requires arguments.variablesReference")
+  assertTrue "setVariable zero variablesReference rejects request"
+    (stdout.contains "\"request_seq\":7" &&
+      stdout.contains "setVariable requires variablesReference > 0")
+  assertTrue "setVariable invalid value expression rejects request"
+    (stdout.contains "\"request_seq\":8" &&
+      stdout.contains "Unknown variable 'missing'")
+
+def testToyDapExceptionBreakpointsAndInfo : IO Unit := do
+  let stdinPayload :=
+    String.intercalate ""
+      [ encodeDapRequest 1 "initialize",
+        encodeDapRequest 2 "setExceptionBreakpoints" <| Json.mkObj
+          [ ("filters", Json.arr #[toJson "runtime"]) ],
+        encodeDapRequest 3 "launch" <| exceptionLaunchArgs true,
+        encodeDapRequest 4 "next",
+        encodeDapRequest 5 "next",
+        encodeDapRequest 6 "next",
+        encodeDapRequest 7 "exceptionInfo",
+        encodeDapRequest 8 "disconnect" ]
+  let stdout ← runToyDapPayload "toydap.exception.info" stdinPayload
+  assertTrue "setExceptionBreakpoints response present"
+    (stdout.contains "\"request_seq\":2" &&
+      stdout.contains "\"command\":\"setExceptionBreakpoints\"")
+  assertTrue "failing next still produces a successful response when exception breakpoints are enabled"
+    (stdout.contains "\"request_seq\":6" &&
+      stdout.contains "\"command\":\"next\"" &&
+      stdout.contains "\"success\":true")
+  assertTrue "exception stop event emitted after failing step"
+    (appearsBefore stdout "\"request_seq\":6" "\"reason\":\"exception\"")
+  assertTrue "exception stop includes human-readable text"
+    (stdout.contains "\"text\":\"division by zero")
+  assertTrue "exceptionInfo response present"
+    (stdout.contains "\"request_seq\":7" &&
+      stdout.contains "\"command\":\"exceptionInfo\"")
+  assertTrue "exceptionInfo includes divByZero id"
+    (stdout.contains "\"exceptionId\":\"divByZero\"")
+  assertTrue "exceptionInfo includes divide-by-zero description"
+    (stdout.contains "\"description\":\"division by zero")
+
+def testToyDapExceptionStopKeepsFailureLocationAfterContinue : IO Unit := do
+  let stdinPayload :=
+    String.intercalate ""
+      [ encodeDapRequest 1 "initialize",
+        encodeDapRequest 2 "setExceptionBreakpoints" <| Json.mkObj
+          [ ("filters", Json.arr #[toJson "runtime"]) ],
+        encodeDapRequest 3 "launch" <| failingLaunchArgs true,
+        encodeDapRequest 4 "continue",
+        encodeDapRequest 5 "stackTrace",
+        encodeDapRequest 6 "disconnect" ]
+  let stdout ← runToyDapPayload "toydap.exception.location.continue" stdinPayload
+  assertTrue "continue response present in exception-location flow"
+    (stdout.contains "\"request_seq\":4" && stdout.contains "\"command\":\"continue\"")
+  assertTrue "continue flow emits exception stop"
+    (stdout.contains "\"reason\":\"exception\"")
+  assertTrue "stackTrace response present in exception-location flow"
+    (stdout.contains "\"request_seq\":5" && stdout.contains "\"command\":\"stackTrace\"")
+  assertTrue "stackTrace top frame is scaleAndShift at failing division statement"
+    (stdout.contains "\"name\":\"scaleAndShift: let mayfail := div scaled uh\"")
+  assertTrue "callee frame appears before caller frame in stackTrace payload"
+    (appearsBefore stdout "\"name\":\"scaleAndShift:" "\"name\":\"main:")
 def testToyDapLaunchWithEntryPointRejected : IO Unit := do
   let stdinPayload :=
     String.intercalate ""
@@ -235,6 +456,11 @@ def runTransportTests : IO Unit := do
   testToyDapStepInOutProtocol
   testToyDapNextStepsOverCall
   testToyDapNextCanStopAtCalleeBreakpoint
+  testToyDapEvaluateAndSetVariable
+  testToyDapEvaluateAndSetVariableAcrossFrames
+  testToyDapEvaluateAndSetVariableNegativePaths
+  testToyDapExceptionBreakpointsAndInfo
+  testToyDapExceptionStopKeepsFailureLocationAfterContinue
   testToyDapLaunchWithEntryPointRejected
   testToyDapLaunchTerminatesOrder
   testToyDapDisconnectCanTargetSessionId

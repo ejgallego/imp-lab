@@ -19,6 +19,7 @@ structure AdapterState where
   core : SessionStore := {}
   defaultSessionId? : Option Nat := none
   pendingBreakpoints : Array Nat := #[]
+  pendingExceptionFilters : Array String := #[]
   sourcePathBySession : Std.HashMap Nat String := {}
   deriving Inhabited
 
@@ -84,14 +85,18 @@ private def sendEvent (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState)
       ("body", body) ]
 
 private def emitStopOrTerminate (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState)
-    (stopReason : String) (terminated : Bool) : IO Unit := do
+    (stopReason : String) (terminated : Bool) (description? : Option String := none) : IO Unit := do
   if terminated || stopReason = "terminated" then
     sendEvent stdout stRef "terminated"
   else
-    sendEvent stdout stRef "stopped" <| Json.mkObj
+    let fields :=
       [ ("reason", toJson (normalizedStoppedReason stopReason)),
         ("threadId", toJson 1),
-        ("allThreadsStopped", toJson true) ]
+        ("allThreadsStopped", toJson true) ] ++
+      match description? with
+      | some description => [("text", toJson description)]
+      | none => []
+    sendEvent stdout stRef "stopped" <| Json.mkObj fields
 
 private def parseBreakpointsArray (json : Json) : Array Nat :=
   match json.getArr?.toOption with
@@ -111,6 +116,20 @@ private def parseBreakpointLines (args : Json) : Array Nat :=
   match (args.getObjVal? "breakpoints").toOption with
   | some breakpointsJson => parseBreakpointsArray breakpointsJson
   | none => #[]
+
+private def parseStringArrayField (args : Json) (field : String) : Array String :=
+  match (args.getObjVal? field).toOption with
+  | none => #[]
+  | some value =>
+    match value.getArr?.toOption with
+    | none => #[]
+    | some values =>
+      values.foldl
+        (init := #[])
+        (fun acc item =>
+          match (fromJson? item : Except String String) with
+          | .ok str => acc.push str
+          | .error _ => acc)
 
 private def requireProgramInfo (args : Json) : IO ProgramInfo := do
   let programInfoJson ←
@@ -152,10 +171,19 @@ private def requireSessionId (stRef : IO.Ref AdapterState) (args : Json) : IO Na
 
 private def handleInitialize (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState)
     (req : DapRequest) : IO Unit := do
+  let exceptionBreakpointFilters := Json.arr
+    #[Json.mkObj
+      [ ("filter", toJson "runtime"),
+        ("label", toJson "Runtime errors"),
+        ("default", toJson true) ]]
   sendResponse stdout stRef req <| Json.mkObj
     [ ("supportsConfigurationDoneRequest", toJson dapCapabilities.supportsConfigurationDoneRequest),
       ("supportsStepBack", toJson dapCapabilities.supportsStepBack),
-      ("supportsRestartRequest", toJson dapCapabilities.supportsRestartRequest) ]
+      ("supportsRestartRequest", toJson dapCapabilities.supportsRestartRequest),
+      ("supportsEvaluateForHovers", toJson dapCapabilities.supportsEvaluateForHovers),
+      ("supportsSetVariable", toJson dapCapabilities.supportsSetVariable),
+      ("supportsExceptionInfoRequest", toJson dapCapabilities.supportsExceptionInfoRequest),
+      ("exceptionBreakpointFilters", exceptionBreakpointFilters) ]
   sendEvent stdout stRef "initialized"
 
 private def handleLaunch (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState)
@@ -168,10 +196,17 @@ private def handleLaunch (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState)
   let pending := (← stRef.get).pendingBreakpoints
   let activeBreakpoints := if breakpoints.isEmpty then pending else breakpoints
   let st ← stRef.get
-  let (core, launch) ←
+  let (coreAfterLaunch, launch) ←
     match ImpLab.launchFromProgramInfo st.core programInfo stopOnEntry activeBreakpoints with
     | .ok value => pure value
     | .error err => throw <| IO.userError err
+  let core ←
+    if st.pendingExceptionFilters.isEmpty then
+      pure coreAfterLaunch
+    else
+      match ImpLab.setExceptionBreakpoints coreAfterLaunch launch.sessionId st.pendingExceptionFilters with
+      | .ok (core, _) => pure core
+      | .error err => throw <| IO.userError err
   stRef.modify fun st =>
     let sourcePathBySession :=
       match sourcePath? with
@@ -209,6 +244,24 @@ private def handleSetBreakpoints (stdout : IO.FS.Stream) (stRef : IO.Ref Adapter
     stRef.modify fun st => { st with core }
     let breakpoints := Json.arr <| response.breakpoints.map toBreakpointJson
     sendResponse stdout stRef req <| Json.mkObj [("breakpoints", breakpoints)]
+
+private def handleSetExceptionBreakpoints (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState)
+    (req : DapRequest) : IO Unit := do
+  let args := requestArgs req
+  let filters := parseStringArrayField args "filters"
+  stRef.modify fun st => { st with pendingExceptionFilters := filters }
+  let st ← stRef.get
+  let targetSessionId? := (sessionIdFromArgs? args) <|> st.defaultSessionId?
+  match targetSessionId? with
+  | none =>
+    sendResponse stdout stRef req
+  | some sessionId =>
+    let (core, response) ←
+      match ImpLab.setExceptionBreakpoints st.core sessionId filters with
+      | .ok value => pure value
+      | .error err => throw <| IO.userError err
+    stRef.modify fun st => { st with core }
+    sendResponse stdout stRef req <| Json.mkObj [("enabled", toJson response.enabled)]
 
 private def handleThreads (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState)
     (req : DapRequest) : IO Unit := do
@@ -274,6 +327,63 @@ private def handleVariables (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState
         ("variablesReference", toJson var.variablesReference) ]
   sendResponse stdout stRef req <| Json.mkObj [("variables", Json.arr variables)]
 
+private def handleEvaluate (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState)
+    (req : DapRequest) : IO Unit := do
+  let args := requestArgs req
+  let sessionId ← requireSessionId stRef args
+  let expression ←
+    match (args.getObjValAs? String "expression").toOption with
+    | some expression => pure expression
+    | none => throw <| IO.userError "evaluate requires arguments.expression"
+  let frameId := (args.getObjValAs? Nat "frameId").toOption.getD 0
+  let response ←
+    match ImpLab.evaluate (← stRef.get).core sessionId expression frameId with
+    | .ok value => pure value
+    | .error err => throw <| IO.userError err
+  sendResponse stdout stRef req <| Json.mkObj
+    [ ("result", toJson response.result),
+      ("variablesReference", toJson response.variablesReference) ]
+
+private def handleSetVariable (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState)
+    (req : DapRequest) : IO Unit := do
+  let args := requestArgs req
+  let sessionId ← requireSessionId stRef args
+  let variablesReference ←
+    match (args.getObjValAs? Nat "variablesReference").toOption with
+    | some variablesReference => pure variablesReference
+    | none => throw <| IO.userError "setVariable requires arguments.variablesReference"
+  let name ←
+    match (args.getObjValAs? String "name").toOption with
+    | some name => pure name
+    | none => throw <| IO.userError "setVariable requires arguments.name"
+  let valueExpression ←
+    match (args.getObjValAs? String "value").toOption with
+    | some value => pure value
+    | none => throw <| IO.userError "setVariable requires arguments.value"
+  let (core, response) ←
+    match ImpLab.setVariable (← stRef.get).core sessionId variablesReference name valueExpression with
+    | .ok value => pure value
+    | .error err => throw <| IO.userError err
+  stRef.modify fun st => { st with core }
+  sendResponse stdout stRef req <| Json.mkObj
+    [ ("value", toJson response.value),
+      ("variablesReference", toJson response.variablesReference) ]
+
+private def handleExceptionInfo (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState)
+    (req : DapRequest) : IO Unit := do
+  let sessionId ← requireSessionId stRef (requestArgs req)
+  let response ←
+    match ImpLab.exceptionInfo (← stRef.get).core sessionId with
+    | .ok value => pure value
+    | .error err => throw <| IO.userError err
+  let fields :=
+    [ ("exceptionId", toJson response.exceptionId),
+      ("breakMode", toJson response.breakMode) ] ++
+    match response.description? with
+    | some description => [("description", toJson description)]
+    | none => []
+  sendResponse stdout stRef req <| Json.mkObj fields
+
 private def handleNext (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState)
     (req : DapRequest) : IO Unit := do
   let sessionId ← requireSessionId stRef (requestArgs req)
@@ -283,7 +393,7 @@ private def handleNext (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState)
     | .error err => throw <| IO.userError err
   stRef.modify fun st => { st with core }
   sendResponse stdout stRef req
-  emitStopOrTerminate stdout stRef response.stopReason response.terminated
+  emitStopOrTerminate stdout stRef response.stopReason response.terminated response.description?
 
 private def handleStepIn (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState)
     (req : DapRequest) : IO Unit := do
@@ -294,7 +404,7 @@ private def handleStepIn (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState)
     | .error err => throw <| IO.userError err
   stRef.modify fun st => { st with core }
   sendResponse stdout stRef req
-  emitStopOrTerminate stdout stRef response.stopReason response.terminated
+  emitStopOrTerminate stdout stRef response.stopReason response.terminated response.description?
 
 private def handleStepOut (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState)
     (req : DapRequest) : IO Unit := do
@@ -305,7 +415,7 @@ private def handleStepOut (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState)
     | .error err => throw <| IO.userError err
   stRef.modify fun st => { st with core }
   sendResponse stdout stRef req
-  emitStopOrTerminate stdout stRef response.stopReason response.terminated
+  emitStopOrTerminate stdout stRef response.stopReason response.terminated response.description?
 
 private def handleStepBack (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState)
     (req : DapRequest) : IO Unit := do
@@ -316,7 +426,7 @@ private def handleStepBack (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState)
     | .error err => throw <| IO.userError err
   stRef.modify fun st => { st with core }
   sendResponse stdout stRef req
-  emitStopOrTerminate stdout stRef response.stopReason response.terminated
+  emitStopOrTerminate stdout stRef response.stopReason response.terminated response.description?
 
 private def handleContinue (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState)
     (req : DapRequest) : IO Unit := do
@@ -330,7 +440,7 @@ private def handleContinue (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState)
     [ ("threadId", toJson 1),
       ("allThreadsContinued", toJson true) ]
   sendResponse stdout stRef req <| Json.mkObj [("allThreadsContinued", toJson true)]
-  emitStopOrTerminate stdout stRef response.stopReason response.terminated
+  emitStopOrTerminate stdout stRef response.stopReason response.terminated response.description?
 
 private def handlePause (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState)
     (req : DapRequest) : IO Unit := do
@@ -340,7 +450,7 @@ private def handlePause (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState)
     | .ok value => pure value
     | .error err => throw <| IO.userError err
   sendResponse stdout stRef req
-  emitStopOrTerminate stdout stRef response.stopReason response.terminated
+  emitStopOrTerminate stdout stRef response.stopReason response.terminated response.description?
 
 private def handleDisconnect (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState)
     (req : DapRequest) : IO Unit := do
@@ -374,11 +484,15 @@ private def handleRequest (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState)
     | "initialize" => handleInitialize stdout stRef req
     | "launch" => handleLaunch stdout stRef req
     | "setBreakpoints" => handleSetBreakpoints stdout stRef req
+    | "setExceptionBreakpoints" => handleSetExceptionBreakpoints stdout stRef req
     | "configurationDone" => sendResponse stdout stRef req
     | "threads" => handleThreads stdout stRef req
     | "stackTrace" => handleStackTrace stdout stRef req
     | "scopes" => handleScopes stdout stRef req
     | "variables" => handleVariables stdout stRef req
+    | "evaluate" => handleEvaluate stdout stRef req
+    | "setVariable" => handleSetVariable stdout stRef req
+    | "exceptionInfo" => handleExceptionInfo stdout stRef req
     | "next" => handleNext stdout stRef req
     | "stepIn" => handleStepIn stdout stRef req
     | "stepOut" => handleStepOut stdout stRef req
