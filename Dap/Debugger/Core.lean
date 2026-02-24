@@ -225,10 +225,12 @@ def threads (_store : SessionStore) : ThreadsResponse :=
 private def applyControl
     (store : SessionStore)
     (sessionId : Nat)
+    (allowTerminated : Bool := false)
     (f : DebugSession → Except EvalError (DebugSession × StopReason)) :
     Except String (SessionStore × ControlResponse) := do
   let data ← getSessionData store sessionId
-  ensureControllable data sessionId
+  if !allowTerminated then
+    ensureControllable data sessionId
   let (session, reason) ←
     match f data.session with
     | .ok value => pure value
@@ -238,19 +240,19 @@ private def applyControl
   pure (store, mkControlResponse data reason)
 
 def next (store : SessionStore) (sessionId : Nat) : Except String (SessionStore × ControlResponse) :=
-  applyControl store sessionId DebugSession.next
+  applyControl store sessionId (f := DebugSession.next)
 
 def stepIn (store : SessionStore) (sessionId : Nat) : Except String (SessionStore × ControlResponse) :=
-  applyControl store sessionId DebugSession.stepIn
+  applyControl store sessionId (f := DebugSession.stepIn)
 
 def stepOut (store : SessionStore) (sessionId : Nat) : Except String (SessionStore × ControlResponse) :=
-  applyControl store sessionId DebugSession.stepOut
+  applyControl store sessionId (f := DebugSession.stepOut)
 
 def stepBack (store : SessionStore) (sessionId : Nat) : Except String (SessionStore × ControlResponse) :=
-  applyControl store sessionId (fun s => pure (DebugSession.stepBack s))
+  applyControl store sessionId (allowTerminated := true) (fun s => pure (DebugSession.stepBack s))
 
 def continueExecution (store : SessionStore) (sessionId : Nat) : Except String (SessionStore × ControlResponse) :=
-  applyControl store sessionId DebugSession.continueExecution
+  applyControl store sessionId (f := DebugSession.continueExecution)
 
 def pause (store : SessionStore) (sessionId : Nat) : Except String ControlResponse := do
   let data ← getSessionData store sessionId

@@ -208,6 +208,20 @@ def testWidgetSessionProjectionAfterStep : IO Unit := do
   assertEq "widget step state pc" props.state.pc 1
   assertEq "widget step state stmt line" props.state.stmtLine 2
 
+def testStepBackAfterTermination : IO Unit := do
+  let info : ProgramInfo := dap%[
+    def main() := {
+      let x := 1
+    }
+  ]
+  let (store1, launch) ← expectCore "stepBack term launch" <| Dap.launchFromProgramInfo {} info false #[]
+  assertEq "stepBack term launch terminated" launch.terminated true
+  let (store2, back) ← expectCore "stepBack term backward" <| Dap.stepBack store1 launch.sessionId
+  assertEq "stepBack term reason" back.stopReason "step"
+  assertEq "stepBack term terminated false" back.terminated false
+  let data ← expectCore "stepBack term inspect" <| Dap.inspectSession store2 launch.sessionId
+  assertEq "stepBack term cursor rewound" data.session.currentPc 0
+
 def testWidgetInitProps : IO Unit := do
   let info : ProgramInfo := dap%[
     def main() := {
@@ -580,6 +594,7 @@ def runCoreTests : IO Unit := do
   testExplorerNavigation
   testWidgetProps
   testWidgetSessionProjectionAfterStep
+  testStepBackAfterTermination
   testWidgetInitProps
   testWidgetSessionViewJsonRoundtrip
   testDebugSessionContinueAndBreakpoints
