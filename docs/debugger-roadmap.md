@@ -8,9 +8,8 @@ Stable architecture guardrails and review policy live in:
 ## Active priorities
 
 1. Remove remaining duplicated behavior between `ImpLab/Debugger/Widget/Server.lean` and `ImpLab/Debugger/DAP/Stdio.lean` by lifting semantics to `ImpLab/Debugger/Core.lean`.
-2. Keep line/function source mapping explicit and centralized so stack and breakpoint rendering stay consistent.
-3. Preserve strict DAP lifecycle ordering and stable payload shapes for editor compatibility.
-4. Keep docs/examples aligned with `ProgramInfo`-only launch/export flows and thin `app/` entrypoints.
+2. Expand transport tests for lifecycle edge cases (invalid ordering, repeated terminate/disconnect).
+3. Strengthen multi-function source mapping checks for stack and breakpoint rendering.
 
 ## Open work queue
 
@@ -20,9 +19,12 @@ Stable architecture guardrails and review policy live in:
 - Keep `client/README.md`, `docs/debugger.md`, and `README.md` aligned with current launch contract.
 - Keep executable roots (`app/ToyDap.lean`, `app/ExportMain.lean`) as thin wrappers.
 
-## Milestones
+## Recently completed
 
-1. Transport parity audit complete (no semantic drift from core).
-2. Source-mapping checks expanded for multi-frame scenarios.
-3. Lifecycle sanity suite covers error-ordering paths.
-4. Docs are trimmed to non-overlapping scopes (`README.md`, `docs/debugger.md`, `ImpLab/Debugger/AGENTS.md`, and this roadmap).
+- Namespace and layout rebrand to `ImpLab` with debugger split under `ImpLab/Debugger/{DAP,Widget}`.
+- Documentation split by scope:
+  - `README.md` for user-facing onboarding.
+  - `docs/debugger.md` for debugger operations.
+  - `docs/language.md` for language reference.
+  - `ImpLab/Debugger/AGENTS.md` for stable debugger guardrails.
+- DSL elaborator renamed to `imp%[...]`.
