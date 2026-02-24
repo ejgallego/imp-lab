@@ -193,7 +193,7 @@ def testWidgetProps : IO Unit := do
   assertEq "widget initial function" props.state.functionName Program.mainName
 
 def testWidgetSessionProjectionAfterStep : IO Unit := do
-  let info : ProgramInfo := dap%[
+  let info : ProgramInfo := imp%[
     def main() := {
       let x := 2,
       let y := 8,
@@ -209,7 +209,7 @@ def testWidgetSessionProjectionAfterStep : IO Unit := do
   assertEq "widget step state stmt line" props.state.stmtLine 2
 
 def testStepBackAfterTermination : IO Unit := do
-  let info : ProgramInfo := dap%[
+  let info : ProgramInfo := imp%[
     def main() := {
       let x := 1
     }
@@ -223,7 +223,7 @@ def testStepBackAfterTermination : IO Unit := do
   assertEq "stepBack term cursor rewound" data.session.currentPc 0
 
 def testWidgetInitProps : IO Unit := do
-  let info : ProgramInfo := dap%[
+  let info : ProgramInfo := imp%[
     def main() := {
       let x := 1
     }
@@ -308,7 +308,7 @@ def testDebugSessionStepBack : IO Unit := do
     assertEq "stepBack replay current pc" replayed.currentPc forwarded.currentPc
 
 def testDebugCoreStepInOut : IO Unit := do
-  let info : ProgramInfo := dap%[
+  let info : ProgramInfo := imp%[
     def inner(x) := {
       let two := 2,
       let out := mul x two,
@@ -359,7 +359,7 @@ def testDebugCoreStepInOut : IO Unit := do
   assertEq "step in/out return from main terminated" outMain.terminated true
 
 def testDebugCoreNextStepsOverCall : IO Unit := do
-  let info : ProgramInfo := dap%[
+  let info : ProgramInfo := imp%[
     def double(x) := {
       let two := 2,
       let out := mul x two,
@@ -386,7 +386,7 @@ def testDebugCoreNextStepsOverCall : IO Unit := do
     (vars.variables.any fun v => v.name == "b" && v.value == "8")
 
 def testDslProgram : IO Unit := do
-  let info : ProgramInfo := dap%[
+  let info : ProgramInfo := imp%[
     def main() := {
       let x := 6,
       let y := 7,
@@ -400,7 +400,7 @@ def testDslProgram : IO Unit := do
     assertSomeEq "dsl result" (ctx.lookup? "z") 13
 
 def testDslNegativeLiteral : IO Unit := do
-  let info : ProgramInfo := dap%[
+  let info : ProgramInfo := imp%[
     def main() := {
       let x := -6,
       let y := 2,
@@ -414,7 +414,7 @@ def testDslNegativeLiteral : IO Unit := do
     assertSomeEq "dsl negative literal result" (ctx.lookup? "z") (-4)
 
 def testDslFunctionCall : IO Unit := do
-  let info : ProgramInfo := dap%[
+  let info : ProgramInfo := imp%[
     def addMul(x, y) := {
       let sum := add x y,
       let out := mul sum y,
@@ -433,7 +433,7 @@ def testDslFunctionCall : IO Unit := do
     assertSomeEq "dsl function call result" (ctx.lookup? "z") 35
 
 def testDslProgramInfo : IO Unit := do
-  let info : ProgramInfo := dap%[
+  let info : ProgramInfo := imp%[
     def main() := {
       let a := 1,
       let b := 2,
@@ -471,7 +471,7 @@ def testProgramInfoValidation : IO Unit := do
     assertTrue "programInfo mismatch error mentions located size" (err.contains "located")
 
 def testDebugCoreFlow : IO Unit := do
-  let info : ProgramInfo := dap%[
+  let info : ProgramInfo := imp%[
     def main() := {
       let x := 5,
       let y := 7,
@@ -500,7 +500,7 @@ def testDebugCoreFlow : IO Unit := do
     pure ()
 
 def testDebugCoreStackFrames : IO Unit := do
-  let info : ProgramInfo := dap%[
+  let info : ProgramInfo := imp%[
     def addMul(x, y) := {
       let sum := add x y,
       let out := mul sum y,
@@ -535,7 +535,7 @@ def testDebugCoreStackFrames : IO Unit := do
     (varsCaller.variables.any fun v => v.name == "a" && v.value == "2")
 
 def testDebugCoreTerminatedGuards : IO Unit := do
-  let info : ProgramInfo := dap%[
+  let info : ProgramInfo := imp%[
     def main() := {
       let x := 1
     }

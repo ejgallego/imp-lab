@@ -4,8 +4,8 @@ ImpLab includes a small function-based toy language designed for interpreter and
 
 ## DSL entrypoint
 
-- `dap%[...] : ImpLab.ProgramInfo`
-- `dap%[...]` accepts only function definitions.
+- `imp%[...] : ImpLab.ProgramInfo`
+- A program is written as a list of function declarations (`def name(params) := { ... }`).
 - A `main()` function (zero params) is required.
 
 ## Statements
@@ -23,7 +23,7 @@ return v
 ## Example
 
 ```lean
-def p : ImpLab.ProgramInfo := dap%[
+def p : ImpLab.ProgramInfo := imp%[
   def addMul(x, y) := {
     let s := add x y,
     let z := mul s y,

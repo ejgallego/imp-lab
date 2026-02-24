@@ -88,7 +88,7 @@ class LeanToyDebugConfigurationProvider implements vscode.DebugConfigurationProv
         }
         if (!config.programInfo) {
             vscode.window.showErrorMessage(
-                "lean-toy-dap launch requires 'programInfo'. Run `lake exe dap-export --decl mainProgram --out .dap/programInfo.generated.json` or set launch.programInfo.",
+                "lean-toy-dap launch requires 'programInfo'. Run `lake exe dap-export --decl ImpLab.Lang.Examples.mainProgram --out .dap/programInfo.generated.json` or set launch.programInfo.",
             )
             return null
         }

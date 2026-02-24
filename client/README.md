@@ -58,7 +58,7 @@ For JSON payload shape, see `client/programInfo.sample.json`.
 You can also generate `ProgramInfo` JSON via:
 
 ```bash
-lake exe dap-export --decl mainProgram --out .dap/programInfo.generated.json
+lake exe dap-export --decl ImpLab.Lang.Examples.mainProgram --out .dap/programInfo.generated.json
 ```
 
 ## Supported DAP requests

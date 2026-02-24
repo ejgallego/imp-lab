@@ -12,7 +12,7 @@ namespace ImpLab.Lang.Examples
 
 open ImpLab
 
-def mainProgram : ProgramInfo := dap%[
+def mainProgram : ProgramInfo := imp%[
   def bump(x) := {
     let one := 1,
     let out := add x one,

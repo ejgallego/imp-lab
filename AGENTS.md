@@ -20,8 +20,8 @@
 - `cd client && npm run compile`
 
 ## Global conventions
-- `dap%[...]` is the only DSL elaborator and must produce `ProgramInfo`.
-- `dap%[...]` accepts functions only and must include `main()` (zero params).
+- `imp%[...]` is the only DSL elaborator and must produce `ProgramInfo`.
+- `imp%[...]` accepts functions only and must include `main()` (zero params).
 - Keep `mainProgram` as default fixture entrypoint in `examples/Main.lean`.
 - Prefer `initialize` over `builtin_initialize` in project code.
 

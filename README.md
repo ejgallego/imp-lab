@@ -48,13 +48,34 @@ This launches a debugger session directly in infoview.
 
 ## Language
 
-ImpLab includes a small function-based toy language with a dedicated DSL elaborator:
+ImpLab includes a small imperative language with:
 
-- `dap%[...] : ImpLab.ProgramInfo`
-- function-only definitions
-- required `main()` entrypoint
+- integer literals and local variables,
+- arithmetic operations (`add`, `sub`, `mul`, `div`),
+- function calls with parameters,
+- source-aware program metadata used by the debugger.
 
-Language reference and examples:
+Programs are written with:
+
+- `imp%[...] : ImpLab.ProgramInfo`
+
+Example:
+
+```lean
+def sample : ImpLab.ProgramInfo := imp%[
+  def inc(x) := {
+    let one := 1,
+    let out := add x one,
+    return out
+  },
+  def main() := {
+    let seed := 5,
+    let out := call inc(seed)
+  }
+]
+```
+
+Language reference:
 - `docs/language.md`
 
 ## Additional links
