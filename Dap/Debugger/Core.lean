@@ -317,4 +317,21 @@ def disconnect (store : SessionStore) (sessionId : Nat) : SessionStore × Bool :
   let store := { store with sessions := store.sessions.erase sessionId }
   (store, existed)
 
+def inspectSession (store : SessionStore) (sessionId : Nat) : Except String SessionData :=
+  getSessionData store sessionId
+
+/--
+Build a full debugger timeline from `ProgramInfo` by running through Core launch/continue flows.
+This is transport-agnostic and can be used by non-DAP transports (for example widgets).
+-/
+def buildTimeline (programInfo : ProgramInfo) : Except String (ProgramInfo × Array Context) := do
+  let store0 : SessionStore := {}
+  let (store1, launch) ← launchFromProgramInfo store0 programInfo true #[]
+  let (store2, control) ← continueExecution store1 launch.sessionId
+  let data ← inspectSession store2 launch.sessionId
+  if control.terminated || data.session.atEnd then
+    pure (data.programInfo, data.session.history)
+  else
+    throw s!"Timeline build failed: expected terminated state, got {control.stopReason}"
+
 end Dap

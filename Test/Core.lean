@@ -542,6 +542,22 @@ def testRpcLaunchParamsProgramInfoOnly : IO Unit := do
   assertEq "launch params preserve breakpoints" decoded.breakpoints #[1]
   assertEq "launch params preserve stopOnEntry" decoded.stopOnEntry false
 
+def testCoreBuildTimeline : IO Unit := do
+  let info : ProgramInfo := dap%[
+    def square(x) := {
+      let out := mul x x,
+      return out
+    },
+    def main() := {
+      let v := 3,
+      let out := call square(v)
+    }
+  ]
+  let (_validatedInfo, states) ← expectCore "build timeline" <| Dap.buildTimeline info
+  assertEq "build timeline size" states.size 5
+  assertSomeEq "build timeline first pc" (states[0]?.map (·.pc)) 0
+  assertSomeEq "build timeline final pc" (states[states.size - 1]?.map (·.pc)) 2
+
 def runCoreTests : IO Unit := do
   testRunProgram
   testUnboundVariable
@@ -568,5 +584,6 @@ def runCoreTests : IO Unit := do
   testDebugCoreRejectsInvalidProgramInfo
   testResolveCandidateDeclNames
   testRpcLaunchParamsProgramInfoOnly
+  testCoreBuildTimeline
 
 end Dap.Tests

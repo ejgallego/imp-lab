@@ -210,7 +210,7 @@ def testToyDapLaunchWithEntryPointRejected : IO Unit := do
       stdout.contains "launch requires 'programInfo'")
   assertTrue "stepIn after rejected launch reports missing active session"
     (stdout.contains "\"request_seq\":3" &&
-      stdout.contains "No active DAP session. Launch first.")
+      stdout.contains "No default DAP session. Launch first or pass arguments.sessionId.")
 
 def testToyDapLaunchTerminatesOrder : IO Unit := do
   let stdinPayload :=
@@ -229,6 +229,25 @@ def testToyDapLaunchTerminatesOrder : IO Unit := do
     (stdout.contains "\"event\":\"stopped\"")
     false
 
+def testToyDapDisconnectCanTargetSessionId : IO Unit := do
+  let stdinPayload :=
+    String.intercalate ""
+      [ encodeDapRequest 1 "initialize",
+        encodeDapRequest 2 "launch" <| launchArgs true,
+        encodeDapRequest 3 "launch" <| launchArgs true,
+        encodeDapRequest 4 "disconnect" <| Json.mkObj [("sessionId", toJson (1 : Nat))],
+        encodeDapRequest 5 "next",
+        encodeDapRequest 6 "next" <| Json.mkObj [("sessionId", toJson (1 : Nat))],
+        encodeDapRequest 7 "disconnect" ]
+  let stdout ← runToyDapPayload "toydap.disconnect.sessionid" stdinPayload
+  assertTrue "targeted disconnect response present"
+    (stdout.contains "\"request_seq\":4" && stdout.contains "\"command\":\"disconnect\"")
+  assertTrue "default session still runs after disconnecting another session"
+    (stdout.contains "\"request_seq\":5" && stdout.contains "\"command\":\"next\"")
+  assertTrue "disconnected session rejects further requests"
+    (stdout.contains "\"request_seq\":6" &&
+      stdout.contains "Unknown DAP session id: 1")
+
 def runTransportTests : IO Unit := do
   testToyDapProtocolSanity
   testToyDapBreakpointProtocol
@@ -239,5 +258,6 @@ def runTransportTests : IO Unit := do
   testToyDapNextCanStopAtCalleeBreakpoint
   testToyDapLaunchWithEntryPointRejected
   testToyDapLaunchTerminatesOrder
+  testToyDapDisconnectCanTargetSessionId
 
 end Dap.Tests

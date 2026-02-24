@@ -16,7 +16,7 @@ namespace Dap.ToyDap
 structure AdapterState where
   nextSeq : Nat := 1
   core : SessionStore := {}
-  activeSessionId? : Option Nat := none
+  defaultSessionId? : Option Nat := none
   pendingBreakpoints : Array Nat := #[]
   sourcePath? : Option String := none
   deriving Inhabited
@@ -28,6 +28,11 @@ structure DapRequest where
 
 private def normalizedStoppedReason (reason : String) : String :=
   if reason = "terminated" then "pause" else reason
+
+private def requestArgs (req : DapRequest) : Json :=
+  match req.arguments with
+  | .obj _ => req.arguments
+  | _ => Json.mkObj []
 
 private def decodeRequest? (payload : String) : Except String (Option DapRequest) := do
   let json ← Json.parse payload
@@ -148,10 +153,17 @@ private def toBreakpointJson (view : BreakpointView) : Json :=
     | some msg => [("message", toJson msg)]
     | none => []
 
-private def requireActiveSessionId (stRef : IO.Ref AdapterState) : IO Nat := do
-  let some sessionId := (← stRef.get).activeSessionId?
-    | throw <| IO.userError "No active DAP session. Launch first."
-  pure sessionId
+private def sessionIdFromArgs? (args : Json) : Option Nat :=
+  (args.getObjValAs? Nat "sessionId").toOption
+
+private def requireSessionId (stRef : IO.Ref AdapterState) (args : Json) : IO Nat := do
+  match sessionIdFromArgs? args with
+  | some sessionId =>
+    pure sessionId
+  | none =>
+    let some sessionId := (← stRef.get).defaultSessionId?
+      | throw <| IO.userError "No default DAP session. Launch first or pass arguments.sessionId."
+    pure sessionId
 
 private def handleInitialize (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState)
     (req : DapRequest) : IO Unit := do
@@ -163,10 +175,7 @@ private def handleInitialize (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterStat
 
 private def handleLaunch (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState)
     (req : DapRequest) : IO Unit := do
-  let args :=
-    match req.arguments with
-    | .obj _ => req.arguments
-    | _ => Json.mkObj []
+  let args := requestArgs req
   let programInfo ← requireProgramInfo args
   let stopOnEntry := (args.getObjValAs? Bool "stopOnEntry").toOption.getD true
   let sourcePath? := (args.getObjValAs? String "source").toOption
@@ -181,7 +190,7 @@ private def handleLaunch (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState)
   stRef.modify fun st =>
     { st with
       core
-      activeSessionId? := some launch.sessionId
+      defaultSessionId? := some launch.sessionId
       pendingBreakpoints := activeBreakpoints
       sourcePath? := sourcePath? }
   sendResponse stdout stRef req
@@ -189,14 +198,12 @@ private def handleLaunch (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState)
 
 private def handleSetBreakpoints (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState)
     (req : DapRequest) : IO Unit := do
-  let args :=
-    match req.arguments with
-    | .obj _ => req.arguments
-    | _ => Json.mkObj []
+  let args := requestArgs req
   let lines := parseBreakpointLines args
   stRef.modify fun st => { st with pendingBreakpoints := lines }
   let st ← stRef.get
-  match st.activeSessionId? with
+  let targetSessionId? := (sessionIdFromArgs? args) <|> st.defaultSessionId?
+  match targetSessionId? with
   | none =>
     let breakpoints := Json.arr <| lines.map fun line =>
       toBreakpointJson
@@ -223,11 +230,8 @@ private def handleThreads (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState)
 
 private def handleStackTrace (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState)
     (req : DapRequest) : IO Unit := do
-  let sessionId ← requireActiveSessionId stRef
-  let args :=
-    match req.arguments with
-    | .obj _ => req.arguments
-    | _ => Json.mkObj []
+  let args := requestArgs req
+  let sessionId ← requireSessionId stRef args
   let startFrame := (args.getObjValAs? Nat "startFrame").toOption.getD 0
   let levels := (args.getObjValAs? Nat "levels").toOption.getD 20
   let st ← stRef.get
@@ -251,11 +255,8 @@ private def handleStackTrace (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterStat
 
 private def handleScopes (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState)
     (req : DapRequest) : IO Unit := do
-  let sessionId ← requireActiveSessionId stRef
-  let args :=
-    match req.arguments with
-    | .obj _ => req.arguments
-    | _ => Json.mkObj []
+  let args := requestArgs req
+  let sessionId ← requireSessionId stRef args
   let frameId := (args.getObjValAs? Nat "frameId").toOption.getD 0
   let response ←
     match Dap.scopes (← stRef.get).core sessionId frameId with
@@ -270,11 +271,8 @@ private def handleScopes (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState)
 
 private def handleVariables (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState)
     (req : DapRequest) : IO Unit := do
-  let sessionId ← requireActiveSessionId stRef
-  let args :=
-    match req.arguments with
-    | .obj _ => req.arguments
-    | _ => Json.mkObj []
+  let args := requestArgs req
+  let sessionId ← requireSessionId stRef args
   let variablesReference := (args.getObjValAs? Nat "variablesReference").toOption.getD 0
   let response ←
     match Dap.variables (← stRef.get).core sessionId variablesReference with
@@ -289,7 +287,7 @@ private def handleVariables (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState
 
 private def handleNext (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState)
     (req : DapRequest) : IO Unit := do
-  let sessionId ← requireActiveSessionId stRef
+  let sessionId ← requireSessionId stRef (requestArgs req)
   let (core, response) ←
     match Dap.next (← stRef.get).core sessionId with
     | .ok value => pure value
@@ -300,7 +298,7 @@ private def handleNext (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState)
 
 private def handleStepIn (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState)
     (req : DapRequest) : IO Unit := do
-  let sessionId ← requireActiveSessionId stRef
+  let sessionId ← requireSessionId stRef (requestArgs req)
   let (core, response) ←
     match Dap.stepIn (← stRef.get).core sessionId with
     | .ok value => pure value
@@ -311,7 +309,7 @@ private def handleStepIn (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState)
 
 private def handleStepOut (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState)
     (req : DapRequest) : IO Unit := do
-  let sessionId ← requireActiveSessionId stRef
+  let sessionId ← requireSessionId stRef (requestArgs req)
   let (core, response) ←
     match Dap.stepOut (← stRef.get).core sessionId with
     | .ok value => pure value
@@ -322,7 +320,7 @@ private def handleStepOut (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState)
 
 private def handleStepBack (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState)
     (req : DapRequest) : IO Unit := do
-  let sessionId ← requireActiveSessionId stRef
+  let sessionId ← requireSessionId stRef (requestArgs req)
   let (core, response) ←
     match Dap.stepBack (← stRef.get).core sessionId with
     | .ok value => pure value
@@ -333,7 +331,7 @@ private def handleStepBack (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState)
 
 private def handleContinue (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState)
     (req : DapRequest) : IO Unit := do
-  let sessionId ← requireActiveSessionId stRef
+  let sessionId ← requireSessionId stRef (requestArgs req)
   let (core, response) ←
     match Dap.continueExecution (← stRef.get).core sessionId with
     | .ok value => pure value
@@ -347,7 +345,7 @@ private def handleContinue (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState)
 
 private def handlePause (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState)
     (req : DapRequest) : IO Unit := do
-  let sessionId ← requireActiveSessionId stRef
+  let sessionId ← requireSessionId stRef (requestArgs req)
   let response ←
     match Dap.pause (← stRef.get).core sessionId with
     | .ok value => pure value
@@ -357,12 +355,23 @@ private def handlePause (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState)
 
 private def handleDisconnect (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState)
     (req : DapRequest) : IO Unit := do
+  let args := requestArgs req
   let st ← stRef.get
+  let targetSessionId? := (sessionIdFromArgs? args) <|> st.defaultSessionId?
   let core :=
-    match st.activeSessionId? with
+    match targetSessionId? with
     | some sessionId => (Dap.disconnect st.core sessionId).1
     | none => st.core
-  stRef.modify fun st => { st with core, activeSessionId? := none }
+  let defaultSessionId? :=
+    match st.defaultSessionId? with
+    | some defaultSessionId =>
+      if (core.sessions.get? defaultSessionId).isSome then
+        some defaultSessionId
+      else
+        none
+    | none =>
+      none
+  stRef.modify fun st => { st with core, defaultSessionId? }
   sendResponse stdout stRef req
 
 private def handleRequest (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterState)

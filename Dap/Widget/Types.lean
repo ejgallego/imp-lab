@@ -5,7 +5,7 @@ Author: Emilio J. Gallego Arias
 -/
 
 import Lean
-import Dap.Lang.Trace
+import Dap.Debugger.Core
 
 open Lean
 
@@ -53,49 +53,38 @@ def ProgramLineView.ofLocatedStmt (located : LocatedStmt) : ProgramLineView :=
 def BindingView.ofPair (entry : Var × Value) : BindingView :=
   { name := entry.1, value := entry.2 }
 
-private def contextStmtLine (program : Program) (ctx : Context) : Nat :=
-  let bodySize := program.bodySizeOf ctx.functionName
-  if bodySize = 0 then
-    1
-  else if ctx.pc < bodySize then
-    ctx.pc + 1
-  else
-    bodySize
+private def singletonSession (program : Program) (ctx : Context) : DebugSession :=
+  { program, history := #[ctx], cursor := 0 }
 
-private def frameStmtLine (program : Program) (frame : CallFrame) : Nat :=
-  let bodySize := program.bodySizeOf frame.func
-  if bodySize = 0 then
-    1
-  else if frame.pc < bodySize then
-    frame.pc + 1
-  else
-    bodySize
-
-def TraceCallFrameView.ofFrame (programInfo : ProgramInfo) (frame : CallFrame) : TraceCallFrameView :=
-  let stmtLine := frameStmtLine programInfo.program frame
+def TraceCallFrameView.ofFrame
+    (programInfo : ProgramInfo)
+    (session : DebugSession)
+    (frame : CallFrame) : TraceCallFrameView :=
+  let stmtLine := session.frameLine frame
   let sourceLine := programInfo.locationToSourceLine { func := frame.func, stmtLine }
   { functionName := frame.func
     stmtLine
     sourceLine }
 
 def StateView.ofContext (programInfo : ProgramInfo) (ctx : Context) : StateView :=
-  let stmtLine := contextStmtLine programInfo.program ctx
-  let sourceLine := programInfo.locationToSourceLine { func := ctx.functionName, stmtLine }
-  let callStack := (ctx.frames.reverse.map (TraceCallFrameView.ofFrame programInfo))
-  { functionName := ctx.functionName
-    pc := ctx.pc
+  let session := singletonSession programInfo.program ctx
+  let stmtLine := session.currentLine
+  let sourceLine := programInfo.locationToSourceLine { func := session.currentFuncName, stmtLine }
+  let callStack := (session.callFrames.reverse.map (TraceCallFrameView.ofFrame programInfo session))
+  { functionName := session.currentFuncName
+    pc := session.currentPc
     stmtLine := stmtLine
     sourceLine := sourceLine
-    callDepth := ctx.callDepth
+    callDepth := session.currentCallDepth
     callStack := callStack
-    bindings := ctx.bindings.map BindingView.ofPair }
+    bindings := session.bindings.map BindingView.ofPair }
 
-def TraceWidgetProps.ofTrace (programInfo : ProgramInfo) (trace : ExecutionTrace) : TraceWidgetProps :=
+def TraceWidgetProps.ofContexts (programInfo : ProgramInfo) (states : Array Context) : TraceWidgetProps :=
   { program := programInfo.located.map ProgramLineView.ofLocatedStmt
-    states := trace.states.map (StateView.ofContext programInfo) }
+    states := states.map (StateView.ofContext programInfo) }
 
-def traceWidgetProps (programInfo : ProgramInfo) : Except EvalError TraceWidgetProps := do
-  let trace ← ExecutionTrace.build programInfo.program
-  pure (TraceWidgetProps.ofTrace programInfo trace)
+def traceWidgetProps (programInfo : ProgramInfo) : Except String TraceWidgetProps := do
+  let (programInfo, states) ← Dap.buildTimeline programInfo
+  pure (TraceWidgetProps.ofContexts programInfo states)
 
 end Dap
