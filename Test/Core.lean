@@ -11,8 +11,11 @@ open Lean
 
 namespace ImpLab.Tests
 
-private def mkProgram (mainBody : Array Stmt) (helpers : Array FuncDef := #[]) : Program :=
-  { functions := #[{ name := Program.mainName, params := #[], body := mainBody }] ++ helpers }
+private def mkProgram
+    (mainBody : Array Stmt)
+    (helpers : Array FuncDef := #[])
+    (globals : Array GlobalDecl := #[]) : Program :=
+  { globals, functions := #[{ name := Program.mainName, params := #[], body := mainBody }] ++ helpers }
 
 private def mkProgramInfo (program : Program) : ProgramInfo :=
   let located :=
@@ -51,6 +54,60 @@ def testUnboundVariable : IO Unit := do
     throw <| IO.userError "testUnboundVariable failed: expected an error"
   | .error err =>
     assertEq "unbound variable error" err (.unboundVar "x")
+
+def testGlobalGetSetProgram : IO Unit := do
+  let program := mkProgram
+    #[
+      Stmt.letGet "before" "counter",
+      Stmt.letConst "one" 1,
+      Stmt.letBin "next" .add "before" "one",
+      Stmt.setGlobal "counter" "next",
+      Stmt.letGet "after" "counter"
+    ]
+    #[]
+    #[{ name := "counter", init := 41 }]
+  match run program with
+  | .error err =>
+    throw <| IO.userError s!"testGlobalGetSetProgram failed: {err}"
+  | .ok ctx =>
+    assertSomeEq "global read before set" (ctx.lookup? "before") 41
+    assertSomeEq "global read after set" (ctx.lookup? "after") 42
+    assertSomeEq "global final heap value" (ctx.heap.find? "counter") 42
+
+def testUndeclaredGlobalAccess : IO Unit := do
+  let getProgram := mkProgram #[Stmt.letGet "x" "missing"]
+  match run getProgram with
+  | .ok _ =>
+    throw <| IO.userError "testUndeclaredGlobalAccess get should fail"
+  | .error err =>
+    assertEq "undeclared global get error" err (.undeclaredGlobal "missing")
+  let setProgram := mkProgram #[Stmt.letConst "x" 3, Stmt.setGlobal "missing" "x"]
+  match run setProgram with
+  | .ok _ =>
+    throw <| IO.userError "testUndeclaredGlobalAccess set should fail"
+  | .error err =>
+    assertEq "undeclared global set error" err (.undeclaredGlobal "missing")
+
+def testGlobalHeapPersistsAcrossCall : IO Unit := do
+  let identity : FuncDef :=
+    { name := "identity"
+      params := #["x"]
+      body := #[.return_ "x"] }
+  let program := mkProgram
+    #[
+      Stmt.letConst "one" 1,
+      Stmt.setGlobal "counter" "one",
+      Stmt.letCall "echo" "identity" #["one"],
+      Stmt.letGet "after" "counter"
+    ]
+    #[identity]
+    #[{ name := "counter", init := 0 }]
+  match run program with
+  | .error err =>
+    throw <| IO.userError s!"testGlobalHeapPersistsAcrossCall failed: {err}"
+  | .ok ctx =>
+    assertSomeEq "global survives call/return" (ctx.lookup? "after") 1
+    assertSomeEq "heap value survives call/return" (ctx.heap.find? "counter") 1
 
 def testRunFunctionCallProgram : IO Unit := do
   let scaleAndShift : FuncDef :=
@@ -207,6 +264,19 @@ def testWidgetSessionProjectionAfterStep : IO Unit := do
   assertEq "widget step reason propagated" props.stopReason step.stopReason
   assertEq "widget step state pc" props.state.pc 1
   assertEq "widget step state stmt line" props.state.stmtLine 2
+
+def testWidgetHeapProjection : IO Unit := do
+  let info : ProgramInfo := imp%[
+    global counter := 7,
+    def main() := {
+      let x := get counter
+    }
+  ]
+  let (store, launch) ← expectCore "widget heap launch" <| ImpLab.launchFromProgramInfo {} info true #[]
+  let data ← expectCore "widget heap inspect" <| ImpLab.inspectSession store launch.sessionId
+  let props := TraceWidgetSessionView.ofSessionData launch.sessionId data launch.stopReason
+  assertTrue "widget heap projection includes counter"
+    (props.state.heapBindings.any fun b => b.name == "counter" && b.value == 7)
 
 def testStepBackAfterTermination : IO Unit := do
   let info : ProgramInfo := imp%[
@@ -432,6 +502,26 @@ def testDslFunctionCall : IO Unit := do
   | .ok ctx =>
     assertSomeEq "dsl function call result" (ctx.lookup? "z") 35
 
+def testDslGlobals : IO Unit := do
+  let info : ProgramInfo := imp%[
+    global counter := 10,
+    def main() := {
+      let before := get counter,
+      let one := 1,
+      let next := add before one,
+      set counter := next,
+      let after := get counter
+    }
+  ]
+  assertEq "dsl globals declaration count" info.program.globals.size 1
+  match run info.program with
+  | .error err =>
+    throw <| IO.userError s!"testDslGlobals failed: {err}"
+  | .ok ctx =>
+    assertSomeEq "dsl globals before value" (ctx.lookup? "before") 10
+    assertSomeEq "dsl globals after value" (ctx.lookup? "after") 11
+    assertSomeEq "dsl globals heap value" (ctx.heap.find? "counter") 11
+
 def testDslProgramInfo : IO Unit := do
   let info : ProgramInfo := imp%[
     def main() := {
@@ -469,6 +559,16 @@ def testProgramInfoValidation : IO Unit := do
     throw <| IO.userError "testProgramInfoValidation should reject mismatched ProgramInfo"
   | .error err =>
     assertTrue "programInfo mismatch error mentions located size" (err.contains "located")
+  let dupGlobalInfo : ProgramInfo :=
+    { program :=
+        { globals := #[{ name := "counter", init := 0 }, { name := "counter", init := 1 }]
+          functions := #[{ name := Program.mainName, params := #[], body := #[stmt0] }] }
+      located := #[{ func := Program.mainName, stmtLine := 1, stmt := stmt0, span }] }
+  match dupGlobalInfo.validate with
+  | .ok _ =>
+    throw <| IO.userError "testProgramInfoValidation should reject duplicate globals"
+  | .error err =>
+    assertTrue "duplicate globals error mentions duplicate" (err.contains "duplicate")
 
 def testDebugCoreFlow : IO Unit := do
   let info : ProgramInfo := imp%[
@@ -499,6 +599,71 @@ def testDebugCoreFlow : IO Unit := do
   | .error _ =>
     pure ()
 
+def testDebugCoreHeapScope : IO Unit := do
+  let info : ProgramInfo := imp%[
+    global counter := 0,
+    def main() := {
+      let one := 1,
+      set counter := one,
+      let out := get counter
+    }
+  ]
+  let store0 : SessionStore := {}
+  let (store1, launch) ← expectCore "core heap launch" <| ImpLab.launchFromProgramInfo store0 info true #[]
+  let sessionId := launch.sessionId
+  let scopes0 ← expectCore "core heap scopes" <| ImpLab.scopes store1 sessionId 0
+  assertEq "core heap scope count" scopes0.scopes.size 2
+  let topLocalsScope := (scopes0.scopes[0]?.map (·.name)).getD ""
+  let topHeapScope := (scopes0.scopes[1]?.map (·.name)).getD ""
+  assertEq "core heap scope name locals" topLocalsScope "locals"
+  assertEq "core heap scope name heap" topHeapScope "heap"
+  let heapBefore ← expectCore "core heap vars before set" <| ImpLab.variables store1 sessionId 2
+  assertTrue "core heap vars include initial counter"
+    (heapBefore.variables.any fun v => v.name == "counter" && v.value == "0")
+  let (store2, _) ← expectCore "core heap step one" <| ImpLab.stepIn store1 sessionId
+  let (store3, _) ← expectCore "core heap step set" <| ImpLab.stepIn store2 sessionId
+  let heapAfter ← expectCore "core heap vars after set" <| ImpLab.variables store3 sessionId 2
+  assertTrue "core heap vars include updated counter"
+    (heapAfter.variables.any fun v => v.name == "counter" && v.value == "1")
+
+def testDebugCoreHeapScopeInCallee : IO Unit := do
+  let info : ProgramInfo := imp%[
+    global counter := 9,
+    def id(x) := {
+      return x
+    },
+    def main() := {
+      let one := 1,
+      let out := call id(one)
+    }
+  ]
+  let store0 : SessionStore := {}
+  let (store1, launch) ← expectCore "core heap callee launch" <| ImpLab.launchFromProgramInfo store0 info true #[]
+  let sessionId := launch.sessionId
+  let (store2, _) ← expectCore "core heap callee step1" <| ImpLab.stepIn store1 sessionId
+  let (store3, _) ← expectCore "core heap callee enter" <| ImpLab.stepIn store2 sessionId
+  let scopesTop ← expectCore "core heap callee scopes top" <| ImpLab.scopes store3 sessionId 0
+  let heapRef := (scopesTop.scopes[1]?.map (·.variablesReference)).getD 0
+  let heapVars ← expectCore "core heap callee vars" <| ImpLab.variables store3 sessionId heapRef
+  assertTrue "core heap callee vars include counter"
+    (heapVars.variables.any fun v => v.name == "counter" && v.value == "9")
+
+def testDebugCoreSetVariableHeap : IO Unit := do
+  let info : ProgramInfo := imp%[
+    global counter := 0,
+    def main() := {
+      let one := 1
+    }
+  ]
+  let store0 : SessionStore := {}
+  let (store1, launch) ← expectCore "setVariable heap launch" <| ImpLab.launchFromProgramInfo store0 info true #[]
+  let sessionId := launch.sessionId
+  let (store2, setHeap) ← expectCore "setVariable heap counter" <| ImpLab.setVariable store1 sessionId 2 "counter" "7"
+  assertEq "setVariable heap response value" setHeap.value "7"
+  let heapVars ← expectCore "setVariable heap variables" <| ImpLab.variables store2 sessionId 2
+  assertTrue "setVariable heap updated counter"
+    (heapVars.variables.any fun v => v.name == "counter" && v.value == "7")
+
 def testDebugCoreStackFrames : IO Unit := do
   let info : ProgramInfo := imp%[
     def addMul(x, y) := {
@@ -526,11 +691,13 @@ def testDebugCoreStackFrames : IO Unit := do
   assertTrue "stack frames top is callee" (top.name.contains "addMul")
   assertTrue "stack frames caller is main" (caller.name.contains "main")
   let scopesTop ← expectCore "stack frames scopes top" <| ImpLab.scopes store4 sessionId 0
-  assertEq "stack frames top scope count" scopesTop.scopes.size 1
+  assertEq "stack frames top scope count" scopesTop.scopes.size 2
   let varsTop ← expectCore "stack frames vars top" <| ImpLab.variables store4 sessionId 1
   assertTrue "stack frames top vars include x"
     (varsTop.variables.any fun v => v.name == "x" && v.value == "2")
-  let varsCaller ← expectCore "stack frames vars caller" <| ImpLab.variables store4 sessionId 2
+  let heapTop ← expectCore "stack frames vars heap top" <| ImpLab.variables store4 sessionId 2
+  assertEq "stack frames heap empty without globals" heapTop.variables.size 0
+  let varsCaller ← expectCore "stack frames vars caller" <| ImpLab.variables store4 sessionId 3
   assertTrue "stack frames caller vars include a"
     (varsCaller.variables.any fun v => v.name == "a" && v.value == "2")
 
@@ -600,7 +767,7 @@ def testDebugCoreEvaluateAndSetVariableAcrossFrames : IO Unit := do
   | .error err =>
     assertTrue "evaluate callee missing caller-local" (err.contains "Unknown variable")
   let (store6, setCallerLocal) ←
-    expectCore "evaluate frames set caller local" <| ImpLab.setVariable store5 sessionId 2 "outerLocal" "20"
+    expectCore "evaluate frames set caller local" <| ImpLab.setVariable store5 sessionId 3 "outerLocal" "20"
   assertEq "evaluate frames set caller local value" setCallerLocal.value "20"
   let evalOuterLocalAfter ← expectCore "evaluate frames caller local after set" <| ImpLab.evaluate store6 sessionId "outerLocal" 1
   assertEq "evaluate frames caller local after set value" evalOuterLocalAfter.result "20"
@@ -766,6 +933,9 @@ def testResolveCandidateDeclNames : IO Unit := do
 def runCoreTests : IO Unit := do
   testRunProgram
   testUnboundVariable
+  testGlobalGetSetProgram
+  testUndeclaredGlobalAccess
+  testGlobalHeapPersistsAcrossCall
   testRunFunctionCallProgram
   testUnknownFunctionCall
   testArityMismatch
@@ -775,6 +945,7 @@ def runCoreTests : IO Unit := do
   testExplorerNavigation
   testWidgetProps
   testWidgetSessionProjectionAfterStep
+  testWidgetHeapProjection
   testStepBackAfterTermination
   testWidgetInitProps
   testWidgetSessionViewJsonRoundtrip
@@ -785,9 +956,13 @@ def runCoreTests : IO Unit := do
   testDslProgram
   testDslNegativeLiteral
   testDslFunctionCall
+  testDslGlobals
   testDslProgramInfo
   testProgramInfoValidation
   testDebugCoreFlow
+  testDebugCoreHeapScope
+  testDebugCoreHeapScopeInCallee
+  testDebugCoreSetVariableHeap
   testDebugCoreStackFrames
   testDebugCoreEvaluateAndSetVariable
   testDebugCoreEvaluateAndSetVariableAcrossFrames

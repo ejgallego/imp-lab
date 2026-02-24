@@ -51,7 +51,9 @@ This launches a debugger session directly in infoview.
 ImpLab includes a small imperative language with:
 
 - integer literals and local variables,
+- top-level mutable globals (`global g := N`) stored in a heap,
 - arithmetic operations (`add`, `sub`, `mul`, `div`),
+- heap operations (`get g`, `set g := v`),
 - function calls with parameters,
 - source-aware program metadata used by the debugger.
 
@@ -63,6 +65,7 @@ Example:
 
 ```lean
 def sample : ImpLab.ProgramInfo := imp%[
+  global counter := 0,
   def inc(x) := {
     let one := 1,
     let out := add x one,
@@ -70,10 +73,14 @@ def sample : ImpLab.ProgramInfo := imp%[
   },
   def main() := {
     let seed := 5,
-    let out := call inc(seed)
+    let out := call inc(seed),
+    set counter := out,
+    let latest := get counter
   }
 ]
 ```
+
+`get` and `set` on undeclared globals fail with a runtime error.
 
 Language reference:
 - `docs/language.md`

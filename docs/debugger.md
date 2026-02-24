@@ -130,9 +130,18 @@ lake exe dap-export --decl MyProject.Debugger.lesson1Program --out .dap/programI
 
 The interpreter uses explicit call frames:
 - each frame has function name, local environment, and program counter,
+- runtime state also includes a persistent global heap initialized from top-level `global` declarations,
 - `call` pushes a frame,
 - `return` pops and assigns into caller destination,
+- `get` reads a heap cell into locals and `set` updates a heap cell,
 - stepping (`step`) is the semantic foundation for runtime and debugger behavior.
+
+## Scopes and variables
+
+- `scopes` returns two scopes per stack frame:
+  - `locals`: frame-local environment
+  - `heap`: global mutable variables
+- `variables` resolves references for either locals or heap using core-level logic in `ImpLab/Debugger/Core.lean`.
 
 ## Widget RPC methods
 
@@ -149,7 +158,7 @@ Registered in `ImpLab.Debugger.Widget.Server`:
 
 - Event order must remain coherent (`initialized`, `stopped`, `continued`, `terminated`).
 - Breakpoint verification and stack-frame/source mapping must remain function-aware.
-- `Program` stays function-only with required `main()`.
+- `Program` must include `main()` and may include top-level global declarations.
 
 ## Roadmap
 

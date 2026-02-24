@@ -107,6 +107,18 @@ private def failingLaunchArgs (stopOnEntry : Bool) : Json :=
     [ ("programInfo", toJson failingTransportProgramInfo),
       ("stopOnEntry", toJson stopOnEntry) ]
 
+private def globalProgramInfo : ProgramInfo := imp%[
+  global counter := 0,
+  def main() := {
+    let one := 1
+  }
+]
+
+private def launchArgsWithGlobals (stopOnEntry : Bool) : Json :=
+  Json.mkObj
+    [ ("programInfo", toJson globalProgramInfo),
+      ("stopOnEntry", toJson stopOnEntry) ]
+
 private def bumpEntryLine : Nat :=
   transportProgramInfo.locationToSourceLine { func := "bump", stmtLine := 1 }
 
@@ -196,6 +208,45 @@ def testToyDapStepInOutProtocol : IO Unit := do
     (appearsBefore stdout "\"request_seq\":5" "\"event\":\"stopped\"" ||
       appearsBefore stdout "\"request_seq\":5" "\"event\":\"terminated\"")
 
+def testToyDapScopesExposeHeap : IO Unit := do
+  let stdinPayload :=
+    String.intercalate ""
+      [ encodeDapRequest 1 "initialize",
+        encodeDapRequest 2 "launch" <| launchArgsWithGlobals true,
+        encodeDapRequest 3 "scopes" <| Json.mkObj [("frameId", toJson (0 : Nat))],
+        encodeDapRequest 4 "variables" <| Json.mkObj [("variablesReference", toJson (2 : Nat))],
+        encodeDapRequest 5 "disconnect" ]
+  let stdout ← runToyDapPayload "toydap.scopes.heap" stdinPayload
+  assertTrue "scopes response present"
+    (stdout.contains "\"request_seq\":3" && stdout.contains "\"command\":\"scopes\"")
+  assertTrue "scopes include locals and heap"
+    (stdout.contains "\"name\":\"locals\"" && stdout.contains "\"name\":\"heap\"")
+  assertTrue "heap variables response present"
+    (stdout.contains "\"request_seq\":4" && stdout.contains "\"command\":\"variables\"")
+  assertTrue "heap variables include declared global"
+    (stdout.contains "\"name\":\"counter\"" && stdout.contains "\"value\":\"0\"")
+
+def testToyDapSetVariableHeap : IO Unit := do
+  let stdinPayload :=
+    String.intercalate ""
+      [ encodeDapRequest 1 "initialize",
+        encodeDapRequest 2 "launch" <| launchArgsWithGlobals true,
+        encodeDapRequest 3 "setVariable" <| Json.mkObj
+          [ ("variablesReference", toJson (2 : Nat)),
+            ("name", toJson "counter"),
+            ("value", toJson "7") ],
+        encodeDapRequest 4 "variables" <| Json.mkObj [("variablesReference", toJson (2 : Nat))],
+        encodeDapRequest 5 "disconnect" ]
+  let stdout ← runToyDapPayload "toydap.setvariable.heap" stdinPayload
+  assertTrue "heap setVariable response present"
+    (stdout.contains "\"request_seq\":3" && stdout.contains "\"command\":\"setVariable\"")
+  assertTrue "heap setVariable reports updated value"
+    (stdout.contains "\"value\":\"7\"")
+  assertTrue "heap variables reflect updated value"
+    (stdout.contains "\"request_seq\":4" &&
+      stdout.contains "\"name\":\"counter\"" &&
+      stdout.contains "\"value\":\"7\"")
+
 def testToyDapNextStepsOverCall : IO Unit := do
   let stdinPayload :=
     String.intercalate ""
@@ -280,7 +331,7 @@ def testToyDapEvaluateAndSetVariableAcrossFrames : IO Unit := do
           [ ("expression", toJson "seed"),
             ("frameId", toJson (1 : Nat)) ],
         encodeDapRequest 8 "setVariable" <| Json.mkObj
-          [ ("variablesReference", toJson (2 : Nat)),
+          [ ("variablesReference", toJson (3 : Nat)),
             ("name", toJson "seed"),
             ("value", toJson "10") ],
         encodeDapRequest 9 "evaluate" <| Json.mkObj
@@ -482,6 +533,8 @@ def runTransportTests : IO Unit := do
   testToyDapBreakpointProtocol
   testToyDapContinueEventOrder
   testToyDapStepInOutProtocol
+  testToyDapScopesExposeHeap
+  testToyDapSetVariableHeap
   testToyDapNextStepsOverCall
   testToyDapNextCanStopAtCalleeBreakpoint
   testToyDapEvaluateAndSetVariable

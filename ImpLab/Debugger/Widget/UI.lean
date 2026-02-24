@@ -44,7 +44,14 @@ function renderCodeTokens(text, keyPrefix) {
     }
 
     const style = {};
-    if (token === 'let' || token === 'return' || token === 'call' || token === 'def') {
+    if (
+      token === 'let' ||
+      token === 'set' ||
+      token === 'get' ||
+      token === 'return' ||
+      token === 'call' ||
+      token === 'def'
+    ) {
       style.color = '#0059b3';
       style.fontWeight = 650;
     } else if (token === 'add' || token === 'sub' || token === 'mul' || token === 'div') {
@@ -216,7 +223,10 @@ export default function(props) {
     )
   );
 
-  const envRows = state.bindings.map((binding, i) =>
+  const localRows = state.bindings.map((binding, i) =>
+    e('li', { key: i }, binding.name + ' = ' + String(binding.value))
+  );
+  const heapRows = state.heapBindings.map((binding, i) =>
     e('li', { key: i }, binding.name + ' = ' + String(binding.value))
   );
 
@@ -258,11 +268,17 @@ export default function(props) {
               ? e('p', { key: 'empty', style: { margin: 0, opacity: 0.7 } }, '(empty)')
               : e('ul', { key: 'rows', style: { margin: 0, paddingLeft: '20px' } }, callStackRows)
           ]),
-          e('div', { key: 'env' }, [
-            e('div', { key: 'title', style: { marginBottom: '4px', fontWeight: 600 } }, 'Environment'),
-            envRows.length === 0
+          e('div', { key: 'locals', style: { marginBottom: '12px' } }, [
+            e('div', { key: 'title', style: { marginBottom: '4px', fontWeight: 600 } }, 'Locals'),
+            localRows.length === 0
               ? e('p', { key: 'empty', style: { margin: 0, opacity: 0.7 } }, '(empty)')
-              : e('ul', { key: 'rows', style: { margin: 0, paddingLeft: '20px' } }, envRows)
+              : e('ul', { key: 'rows', style: { margin: 0, paddingLeft: '20px' } }, localRows)
+          ]),
+          e('div', { key: 'heap' }, [
+            e('div', { key: 'title', style: { marginBottom: '4px', fontWeight: 600 } }, 'Heap'),
+            heapRows.length === 0
+              ? e('p', { key: 'empty', style: { margin: 0, opacity: 0.7 } }, '(empty)')
+              : e('ul', { key: 'rows', style: { margin: 0, paddingLeft: '20px' } }, heapRows)
           ])
         ])
       ])

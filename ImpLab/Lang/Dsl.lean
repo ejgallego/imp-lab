@@ -15,7 +15,9 @@ namespace ImpLab
 
 declare_syntax_cat imp_rhs
 declare_syntax_cat imp_stmt
+declare_syntax_cat imp_global
 declare_syntax_cat imp_func
+declare_syntax_cat imp_item
 
 syntax num : imp_rhs
 syntax "-" num : imp_rhs
@@ -24,17 +26,23 @@ syntax "sub" ident ident : imp_rhs
 syntax "mul" ident ident : imp_rhs
 syntax "div" ident ident : imp_rhs
 syntax "call" ident "(" ident,* ")" : imp_rhs
+syntax "get" ident : imp_rhs
 
 syntax "let " ident " := " imp_rhs : imp_stmt
+syntax "set " ident " := " ident : imp_stmt
 syntax "return " ident : imp_stmt
 
+syntax "global " ident " := " num : imp_global
+syntax "global " ident " := " "-" num : imp_global
 syntax "def " ident "(" ident,* ")" " := " "{" imp_stmt,* "}" : imp_func
+syntax imp_global : imp_item
+syntax imp_func : imp_item
 
 /--
 Program literal syntax for the toy language.
-`imp%[...]` must contain only function definitions and include `main()` as entrypoint.
+`imp%[...]` can contain global declarations and function definitions, and must include `main()`.
 -/
-syntax (name := impProgramTerm) "imp%[" imp_func,* "]" : term
+syntax (name := impProgramTerm) "imp%[" imp_item,* "]" : term
 
 /--
 Convenience command macro to define a program declaration from DSL syntax.
@@ -82,17 +90,21 @@ private def parseRhs : Syntax → TermElabM Rhs
     pure (.bin .div (varOfIdent lhs) (varOfIdent rhs))
   | `(imp_rhs| call $fn:ident($args:ident,*)) =>
     pure (.call (varOfIdent fn) (args.getElems.map varOfIdent))
+  | `(imp_rhs| get $name:ident) =>
+    pure (.get (varOfIdent name))
   | stx =>
     throwErrorAt stx "invalid right-hand side"
 
 private def parseStmt : Syntax → TermElabM Stmt
   | `(imp_stmt| let $dest:ident := $rhs:imp_rhs) => do
     pure (.assign (varOfIdent dest) (← parseRhs rhs))
+  | `(imp_stmt| set $name:ident := $value:ident) =>
+    pure (.set (varOfIdent name) (varOfIdent value))
   | `(imp_stmt| return $value:ident) =>
     pure (.return_ (varOfIdent value))
   | stx =>
     throwErrorAt stx
-      "invalid toy-language statement; expected `let v := rhs` or `return v`"
+      "invalid toy-language statement; expected `let v := rhs`, `set g := v`, or `return v`"
 
 private def spanOfSyntax (fileMap : FileMap) (stx : Syntax) : StmtSpan :=
   match stx.getPos?, stx.getTailPos? with
@@ -117,6 +129,14 @@ private structure ParsedFunc where
   fn : FuncDef
   located : Array LocatedStmt
 
+private def parseGlobal : Syntax → TermElabM GlobalDecl
+  | `(imp_global| global $name:ident := $value:num) => do
+    pure { name := varOfIdent name, init := Int.ofNat (← parseNatLiteral value) }
+  | `(imp_global| global $name:ident := - $value:num) => do
+    pure { name := varOfIdent name, init := -(Int.ofNat (← parseNatLiteral value)) }
+  | stx =>
+    throwErrorAt stx "invalid global declaration"
+
 private def parseFunc : FileMap → Syntax → TermElabM ParsedFunc
   | fileMap, `(imp_func| def $name:ident($params:ident,*) := { $body:imp_stmt,* }) => do
     let bodyStx := body.getElems
@@ -139,7 +159,19 @@ private def parseFunc : FileMap → Syntax → TermElabM ParsedFunc
   | _, stx =>
     throwErrorAt stx "invalid function definition"
 
-private def validateFunctionSet (funcs : Array FuncDef) : TermElabM Unit := do
+private inductive ParsedItem where
+  | global (decl : GlobalDecl)
+  | func (decl : ParsedFunc)
+
+private def parseItem (fileMap : FileMap) : Syntax → TermElabM ParsedItem
+  | `(imp_item| $decl:imp_global) => do
+    pure (.global (← parseGlobal decl))
+  | `(imp_item| $decl:imp_func) => do
+    pure (.func (← parseFunc fileMap decl))
+  | stx =>
+    throwErrorAt stx "invalid top-level item; expected `global ...` or `def ...`"
+
+private def validateProgramItems (globals : Array GlobalDecl) (funcs : Array FuncDef) : TermElabM Unit := do
   if !funcs.any (fun fn => fn.name = Program.mainName) then
     throwError "Invalid DSL program: missing required entry function `main`."
   match funcs.find? (fun fn => fn.name = Program.mainName) with
@@ -158,16 +190,36 @@ private def validateFunctionSet (funcs : Array FuncDef) : TermElabM Unit := do
         (seen.push fn.name, false)).2
   if hasDup then
     throwError "Invalid DSL program: duplicate function names are not allowed."
+  let hasDupGlobals :=
+    (globals.foldl (init := ((#[] : Array GlobalName), false)) fun (seen, dup) gDecl =>
+      if dup then
+        (seen, true)
+      else if seen.contains gDecl.name then
+        (seen, true)
+      else
+        (seen.push gDecl.name, false)).2
+  if hasDupGlobals then
+    throwError "Invalid DSL program: duplicate global names are not allowed."
 
 @[term_elab impProgramTerm]
 def elabImpProgram : TermElab := fun stx _expectedType? => withRef stx do
   let fileMap ← getFileMap
-  let funcStx := stx[1].getSepArgs
-  let parsed ← funcStx.mapM (parseFunc fileMap)
-  let functions := parsed.map (·.fn)
-  validateFunctionSet functions
-  let located := parsed.foldl (init := #[]) fun acc p => acc ++ p.located
-  let program : Program := { functions }
+  let itemStx := stx[1].getSepArgs
+  let parsed ← itemStx.mapM (parseItem fileMap)
+  let globals := parsed.foldl (init := #[]) fun acc item =>
+    match item with
+    | .global decl => acc.push decl
+    | .func _ => acc
+  let functions := parsed.foldl (init := #[]) fun acc item =>
+    match item with
+    | .global _ => acc
+    | .func decl => acc.push decl.fn
+  validateProgramItems globals functions
+  let located := parsed.foldl (init := #[]) fun acc item =>
+    match item with
+    | .global _ => acc
+    | .func decl => acc ++ decl.located
+  let program : Program := { globals, functions }
   let programInfo : ProgramInfo := { program, located }
   let _ ←
     match programInfo.validate with

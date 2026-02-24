@@ -37,6 +37,7 @@ structure StateView where
   callDepth : Nat
   callStack : Array TraceCallFrameView
   bindings : Array BindingView
+  heapBindings : Array BindingView
   deriving Repr, Inhabited, BEq, Server.RpcEncodable, FromJson, ToJson
 
 structure TraceWidgetInitProps where
@@ -82,7 +83,8 @@ def StateView.ofSession (programInfo : ProgramInfo) (session : DebugSession) : S
     sourceLine := sourceLine
     callDepth := session.currentCallDepth
     callStack := callStack
-    bindings := session.bindings.map BindingView.ofPair }
+    bindings := session.bindings.map BindingView.ofPair
+    heapBindings := session.heapBindings.map BindingView.ofPair }
 
 def ProgramLineView.ofProgramInfo (programInfo : ProgramInfo) : Array ProgramLineView :=
   programInfo.located.map ProgramLineView.ofLocatedStmt

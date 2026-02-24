@@ -11,6 +11,7 @@ namespace ImpLab
 
 abbrev Value := Int
 abbrev Env := Lean.RBMap Var Value compare
+abbrev Heap := Lean.RBMap GlobalName Value compare
 
 namespace Env
 
@@ -25,12 +26,26 @@ def bindings (env : Env) : Array (Var × Value) :=
 
 end Env
 
+namespace Heap
+
+def lookup? (heap : Heap) (name : GlobalName) : Option Value :=
+  heap.find? name
+
+def bind (heap : Heap) (name : GlobalName) (value : Value) : Heap :=
+  heap.insert name value
+
+def bindings (heap : Heap) : Array (GlobalName × Value) :=
+  heap.toArray
+
+end Heap
+
 inductive EvalError where
   | unboundVar (name : Var)
   | unknownFunction (name : FuncName)
   | arityMismatch (name : FuncName) (expected actual : Nat)
   | missingReturn (name : FuncName)
   | divByZero (lhs rhs : Int)
+  | undeclaredGlobal (name : GlobalName)
   | invalidPc (pc : Nat) (programLength : Nat)
   | outOfFuel (fuel : Nat)
   deriving Repr, BEq, DecidableEq, Inhabited
@@ -47,6 +62,8 @@ instance : ToString EvalError where
       s!"function '{name}' terminated without `return`"
     | .divByZero lhs rhs =>
       s!"division by zero while evaluating {lhs} / {rhs}"
+    | .undeclaredGlobal name =>
+      s!"undeclared global variable '{name}'"
     | .invalidPc pc programLength =>
       s!"invalid program counter {pc} for program length {programLength}"
     | .outOfFuel fuel =>
@@ -62,6 +79,7 @@ structure CallFrame where
 structure Context where
   current : CallFrame := {}
   callers : Array CallFrame := #[]
+  heap : Heap := {}
   deriving Repr, Inhabited
 
 namespace Context
@@ -90,6 +108,16 @@ def lookup? (ctx : Context) (name : Var) : Option Value :=
 def bindings (ctx : Context) : Array (Var × Value) :=
   ctx.env.toArray
 
+def heapBindings (ctx : Context) : Array (GlobalName × Value) :=
+  ctx.heap.toArray
+
+private def initialHeap (program : Program) : Heap :=
+  program.globals.foldl (init := {}) fun heap global =>
+    heap.bind global.name global.init
+
+def initialForProgram (program : Program) : Context :=
+  { heap := initialHeap program }
+
 end Context
 
 private def lookupFunction (program : Program) (name : FuncName) : Except EvalError FuncDef :=
@@ -112,6 +140,18 @@ def lookupVar (env : Env) (name : Var) : Except EvalError Int :=
   match env.find? name with
   | some value => pure value
   | none => throw (.unboundVar name)
+
+private def ensureDeclaredGlobal (program : Program) (name : GlobalName) : Except EvalError Unit := do
+  if program.isDeclaredGlobal name then
+    pure ()
+  else
+    throw (.undeclaredGlobal name)
+
+private def lookupGlobal (program : Program) (heap : Heap) (name : GlobalName) : Except EvalError Int := do
+  ensureDeclaredGlobal program name
+  match heap.find? name with
+  | some value => pure value
+  | none => throw (.undeclaredGlobal name)
 
 private def bindParams (params : Array Var) (args : Array Value) : Env :=
   let rec go (idx : Nat) (env : Env) : Env :=
@@ -146,7 +186,7 @@ private def executeCall
       pc := 0
       env := bindParams fn.params args
       retDest? := some dest }
-  pure { current := callee, callers := ctx.callers.push ctx.current }
+  pure { current := callee, callers := ctx.callers.push ctx.current, heap := ctx.heap }
 
 private def executeAssign
     (program : Program)
@@ -163,6 +203,18 @@ private def executeAssign
     pure <| advanceCurrent ctx (ctx.env.bind dest value)
   | .call fnName argNames =>
     executeCall program ctx dest fnName argNames
+  | .get name =>
+    let value ← lookupGlobal program ctx.heap name
+    pure <| advanceCurrent ctx (ctx.env.bind dest value)
+
+private def executeSet
+    (program : Program)
+    (ctx : Context)
+    (name : GlobalName)
+    (valueName : Var) : Except EvalError Context := do
+  ensureDeclaredGlobal program name
+  let value ← lookupVar ctx.env valueName
+  pure <| { (advanceCurrent ctx ctx.env) with heap := ctx.heap.bind name value }
 
 private def executeReturn (program : Program) (ctx : Context) (valueName : Var) :
     Except EvalError Context := do
@@ -178,12 +230,14 @@ private def executeReturn (program : Program) (ctx : Context) (valueName : Var) 
       { caller with
         pc := caller.pc + 1
         env := caller.env.bind dest value }
-    pure { current := resumed, callers }
+    pure { current := resumed, callers, heap := ctx.heap }
 
 def executeStmt (program : Program) (ctx : Context) (stmt : Stmt) : Except EvalError Context := do
   match stmt with
   | .assign dest rhs =>
     executeAssign program ctx dest rhs
+  | .set name value =>
+    executeSet program ctx name value
   | .return_ value =>
     executeReturn program ctx value
 
@@ -204,7 +258,7 @@ def step (program : Program) (ctx : Context) : Except EvalError (Option Context)
     | none =>
       throw (.invalidPc ctx.pc fn.body.size)
 
-def runFrom (program : Program) (start : Context := Context.initial) : Except EvalError Context :=
+def runFrom (program : Program) (start : Context := Context.initialForProgram program) : Except EvalError Context :=
   let fuel := program.defaultFuel
   let rec go : Nat → Context → Except EvalError Context
     | 0, _ =>

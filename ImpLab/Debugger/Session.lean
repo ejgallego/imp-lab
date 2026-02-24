@@ -29,7 +29,7 @@ instance : ToString StopReason where
 
 structure DebugSession where
   program : Program
-  history : Array Context := #[Context.initial]
+  history : Array Context := #[]
   cursor : Nat := 0
   breakpoints : Array StmtLocation := #[]
   deriving Repr
@@ -41,7 +41,8 @@ def fromProgram (program : Program) : Except EvalError DebugSession := do
     throw (.unknownFunction Program.mainName)
   if !program.mainHasNoParams then
     throw (.arityMismatch Program.mainName 0 (((program.mainFunction?).map (·.params.size)).getD 0))
-  pure { program }
+  let initial := Context.initialForProgram program
+  pure { program, history := #[initial], cursor := 0 }
 
 def maxCursor (session : DebugSession) : Nat :=
   History.maxCursor session.history
@@ -133,6 +134,9 @@ def hitBreakpoint (session : DebugSession) : Bool :=
 
 def bindings (session : DebugSession) : Array (Var × Value) :=
   (session.current?.map Context.bindings).getD #[]
+
+def heapBindings (session : DebugSession) : Array (GlobalName × Value) :=
+  (session.current?.map Context.heapBindings).getD #[]
 
 def currentCallDepth (session : DebugSession) : Nat :=
   (session.current?.map Context.callDepth).getD 0

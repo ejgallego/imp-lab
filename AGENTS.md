@@ -21,7 +21,8 @@
 
 ## Global conventions
 - `imp%[...]` is the only DSL elaborator and must produce `ProgramInfo`.
-- `imp%[...]` accepts functions only and must include `main()` (zero params).
+- `imp%[...]` accepts top-level `global` declarations and functions, and must include `main()` (zero params).
+- `get`/`set` must only access declared globals; undeclared access is a runtime error.
 - Keep `mainProgram` as default fixture entrypoint in `examples/Main.lean`.
 - Prefer `initialize` over `builtin_initialize` in project code.
 

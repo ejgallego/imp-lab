@@ -16,6 +16,9 @@ abbrev Var := String
 /-- Function names in the toy language. -/
 abbrev FuncName := String
 
+/-- Global variable names in the toy language. -/
+abbrev GlobalName := String
+
 /-- Arithmetic operators supported by the language. -/
 inductive BinOp where
   | add
@@ -36,6 +39,7 @@ inductive Rhs where
   | const (value : Int)
   | bin (op : BinOp) (lhs rhs : Var)
   | call (fn : FuncName) (args : Array Var)
+  | get (name : GlobalName)
   deriving Repr, BEq, DecidableEq, Inhabited, FromJson, ToJson, ToExpr
 
 instance : ToString Rhs where
@@ -44,6 +48,8 @@ instance : ToString Rhs where
     | .bin op lhs rhs => s!"{op} {lhs} {rhs}"
     | .call fn args =>
       s!"call {fn}({String.intercalate ", " args.toList})"
+    | .get name =>
+      s!"get {name}"
 
 /--
 A program statement:
@@ -51,6 +57,7 @@ A program statement:
 -/
 inductive Stmt where
   | assign (dest : Var) (rhs : Rhs)
+  | set (name : GlobalName) (value : Var)
   | return_ (value : Var)
   deriving Repr, BEq, DecidableEq, Inhabited, ToExpr
 
@@ -65,6 +72,12 @@ def letBin (dest : Var) (op : BinOp) (lhs rhs : Var) : Stmt :=
 def letCall (dest : Var) (fn : FuncName) (args : Array Var) : Stmt :=
   .assign dest (.call fn args)
 
+def letGet (dest : Var) (name : GlobalName) : Stmt :=
+  .assign dest (.get name)
+
+def setGlobal (name : GlobalName) (value : Var) : Stmt :=
+  .set name value
+
 def ret (value : Var) : Stmt :=
   .return_ value
 
@@ -73,12 +86,15 @@ end Stmt
 instance : ToString Stmt where
   toString
     | .assign dest rhs => s!"let {dest} := {rhs}"
+    | .set name value => s!"set {name} := {value}"
     | .return_ value => s!"return {value}"
 
 instance : ToJson Stmt where
   toJson
     | .assign dest rhs =>
       Json.mkObj [("dest", toJson dest), ("rhs", toJson rhs)]
+    | .set name value =>
+      Json.mkObj [("set", Json.mkObj [("name", toJson name), ("value", toJson value)])]
     | .return_ value =>
       Json.mkObj [("return", toJson value)]
 
@@ -86,10 +102,20 @@ instance : FromJson Stmt where
   fromJson? json := do
     if let some returnJson := (json.getObjVal? "return").toOption then
       return .return_ (← fromJson? returnJson)
+    else if let some setJson := (json.getObjVal? "set").toOption then
+      return .set
+        (← setJson.getObjValAs? GlobalName "name")
+        (← setJson.getObjValAs? Var "value")
     else
       return .assign
         (← json.getObjValAs? Var "dest")
         (← json.getObjValAs? Rhs "rhs")
+
+/-- Top-level mutable global declaration with initial value. -/
+structure GlobalDecl where
+  name : GlobalName
+  init : Int
+  deriving Repr, BEq, DecidableEq, Inhabited, FromJson, ToJson, ToExpr
 
 /-- Function declaration in the toy language. -/
 structure FuncDef where
@@ -102,14 +128,21 @@ instance : ToString FuncDef where
   toString fn :=
     s!"def {fn.name}({String.intercalate ", " fn.params.toList})"
 
-/-- Program is a list of functions. Entry point function is `main`. -/
+/-- Program is a list of global declarations and functions. Entry point function is `main`. -/
 structure Program where
+  globals : Array GlobalDecl := #[]
   functions : Array FuncDef := #[]
   deriving Repr, BEq, DecidableEq, Inhabited, FromJson, ToJson, ToExpr
 
 namespace Program
 
 def mainName : FuncName := "main"
+
+def findGlobal? (program : Program) (name : GlobalName) : Option GlobalDecl :=
+  program.globals.find? (fun g => g.name = name)
+
+def isDeclaredGlobal (program : Program) (name : GlobalName) : Bool :=
+  (program.findGlobal? name).isSome
 
 def findFunction? (program : Program) (name : FuncName) : Option FuncDef :=
   program.functions.find? (fun fn => fn.name = name)
@@ -148,6 +181,15 @@ def mainHasNoParams (program : Program) : Bool :=
   match program.mainFunction? with
   | some fn => fn.params.isEmpty
   | none => false
+
+def hasDuplicateGlobalNames (program : Program) : Bool :=
+  (program.globals.foldl (init := ((#[] : Array GlobalName), false)) fun (seen, dup) global =>
+    if dup then
+      (seen, true)
+    else if seen.contains global.name then
+      (seen, true)
+    else
+      (seen.push global.name, false)).2
 
 end Program
 
@@ -195,6 +237,8 @@ def validate (info : ProgramInfo) : Except String ProgramInfo := do
     throw "Invalid ProgramInfo: missing required entry function `main`."
   if !info.program.mainHasNoParams then
     throw "Invalid ProgramInfo: `main` must have zero parameters."
+  if info.program.hasDuplicateGlobalNames then
+    throw "Invalid ProgramInfo: duplicate global names are not allowed."
   if !info.hasCompatibleLocations then
     throw <|
       s!"Invalid ProgramInfo: program has {info.program.totalStmtCount} statements but `located` has {info.located.size}."
