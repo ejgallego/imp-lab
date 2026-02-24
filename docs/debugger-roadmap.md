@@ -25,5 +25,3 @@ Context: mapping works for core scenarios, but we still need broader multi-funct
 - Source mapping matrix (`Test/Core.lean` + `Test/Transport.lean`):
   - Cover breakpoints and stack traces across multiple functions/call depths.
   - Confirm mapping stability across `stepIn`, `next`, `stepOut`, and `stepBack` transitions.
-- Documentation sync pass:
-  - Keep `README.md`, `docs/debugger.md`, and `client/README.md` aligned with the same launch contract and examples.
