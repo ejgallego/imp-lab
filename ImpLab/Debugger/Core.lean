@@ -213,6 +213,7 @@ private def evalErrorId (err : EvalError) : String :=
   | .arityMismatch .. => "arityMismatch"
   | .missingReturn _ => "missingReturn"
   | .divByZero .. => "divByZero"
+  | .undeclaredGlobal _ => "undeclaredGlobal"
   | .invalidPc .. => "invalidPc"
   | .outOfFuel _ => "outOfFuel"
 
