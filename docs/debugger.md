@@ -81,6 +81,42 @@ Minimal launch config:
 - `source` is optional and affects source display in stack frames.
 - `toydapPath` and `toydapArgs` are optional adapter controls.
 
+## Supported DAP requests
+
+Currently handled by `toydap`:
+
+- `initialize`
+- `launch`
+- `setBreakpoints`
+- `setExceptionBreakpoints`
+- `configurationDone`
+- `threads`
+- `stackTrace`
+- `scopes`
+- `variables`
+- `evaluate`
+- `setVariable`
+- `exceptionInfo`
+- `next`
+- `stepIn`
+- `stepOut`
+- `stepBack`
+- `continue`
+- `pause`
+- `disconnect`
+- `terminate`
+
+## Current caveats
+
+- `evaluate` is intentionally minimal:
+  - Supports variable lookup, integer literals, and simple binary forms (`x + 1`, `add x y`).
+  - More complex expression parsing is deferred.
+- Exception breakpoint filters currently act as an enable/disable toggle:
+  - Non-empty `filters` enables exception stops.
+  - Empty `filters` disables exception stops.
+  - Filter-specific behavior is not implemented yet.
+- Source introspection requests (`loadedSources`, `source`) remain deferred until we need stronger virtual/generated source workflows.
+
 Export examples:
 
 ```bash

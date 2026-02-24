@@ -375,6 +375,34 @@ def testToyDapExceptionBreakpointsAndInfo : IO Unit := do
   assertTrue "exceptionInfo includes divide-by-zero description"
     (stdout.contains "\"description\":\"division by zero")
 
+def testToyDapExceptionBreakpointsToggleWithinSession : IO Unit := do
+  let stdinPayload :=
+    String.intercalate ""
+      [ encodeDapRequest 1 "initialize",
+        encodeDapRequest 2 "setExceptionBreakpoints" <| Json.mkObj
+          [ ("filters", Json.arr #[toJson "runtime"]) ],
+        encodeDapRequest 3 "launch" <| exceptionLaunchArgs true,
+        encodeDapRequest 4 "next",
+        encodeDapRequest 5 "next",
+        encodeDapRequest 6 "next",
+        encodeDapRequest 7 "setExceptionBreakpoints" <| Json.mkObj
+          [ ("filters", Json.arr #[]) ],
+        encodeDapRequest 8 "next",
+        encodeDapRequest 9 "disconnect" ]
+  let stdout ← runToyDapPayload "toydap.exception.toggle" stdinPayload
+  assertTrue "exception stop appears while breakpoints are enabled"
+    (stdout.contains "\"request_seq\":6" &&
+      stdout.contains "\"reason\":\"exception\"")
+  assertTrue "disable exception breakpoints response present"
+    (stdout.contains "\"request_seq\":7" &&
+      stdout.contains "\"command\":\"setExceptionBreakpoints\"" &&
+      stdout.contains "\"enabled\":false")
+  assertTrue "same failing step errors after disabling exception breakpoints"
+    (stdout.contains "\"request_seq\":8" &&
+      stdout.contains "\"command\":\"next\"" &&
+      stdout.contains "\"success\":false" &&
+      stdout.contains "Debug operation failed: division by zero")
+
 def testToyDapExceptionStopKeepsFailureLocationAfterContinue : IO Unit := do
   let stdinPayload :=
     String.intercalate ""
@@ -460,6 +488,7 @@ def runTransportTests : IO Unit := do
   testToyDapEvaluateAndSetVariableAcrossFrames
   testToyDapEvaluateAndSetVariableNegativePaths
   testToyDapExceptionBreakpointsAndInfo
+  testToyDapExceptionBreakpointsToggleWithinSession
   testToyDapExceptionStopKeepsFailureLocationAfterContinue
   testToyDapLaunchWithEntryPointRejected
   testToyDapLaunchTerminatesOrder
