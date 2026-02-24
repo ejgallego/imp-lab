@@ -142,6 +142,15 @@ The interpreter uses explicit call frames:
   - `locals`: frame-local environment
   - `heap`: global mutable variables
 - `variables` resolves references for either locals or heap using core-level logic in `ImpLab/Debugger/Core.lean`.
+- `variablesReference` encoding is stable and frame-aware:
+  - odd references (`1, 3, 5, ...`) select `locals`,
+  - even references (`2, 4, 6, ...`) select `heap`,
+  - both encode the selected `frameId`.
+- `setVariable` accepts either locals or heap references:
+  - locals update only the selected frame environment,
+  - heap updates mutate global declarations (`global g := N`),
+  - unknown names in either scope are rejected as runtime errors.
+- `setVariable` returns a scalar value (`variablesReference = 0`) to avoid creating synthetic expandable trees in clients.
 
 ## Widget RPC methods
 

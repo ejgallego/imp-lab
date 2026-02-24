@@ -88,4 +88,6 @@ Handled by `toydap`:
 
 - Breakpoints are line-based and resolved through function-aware `ProgramInfo` locations.
 - `setBreakpoints` accepts both `breakpoints[*].line` and legacy `lines[]` payloads.
-- Variables are exposed as a `locals` scope per selected stack frame.
+- Variables are exposed as two scopes per selected stack frame: `locals` and `heap`.
+- `setVariable` works on either scope (locals or heap) depending on `variablesReference`.
+- `setVariable` responses are scalar (`variablesReference = 0`) so VS Code does not render an extra expandable subtree for edited values.

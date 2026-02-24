@@ -242,6 +242,9 @@ def testToyDapSetVariableHeap : IO Unit := do
     (stdout.contains "\"request_seq\":3" && stdout.contains "\"command\":\"setVariable\"")
   assertTrue "heap setVariable reports updated value"
     (stdout.contains "\"value\":\"7\"")
+  assertTrue "heap setVariable response is scalar (variablesReference = 0)"
+    (appearsBefore stdout "\"request_seq\":3" "\"variablesReference\":0" &&
+      appearsBefore stdout "\"variablesReference\":0" "\"request_seq\":4")
   assertTrue "heap variables reflect updated value"
     (stdout.contains "\"request_seq\":4" &&
       stdout.contains "\"name\":\"counter\"" &&
@@ -311,6 +314,9 @@ def testToyDapEvaluateAndSetVariable : IO Unit := do
     (stdout.contains "\"request_seq\":5" && stdout.contains "\"command\":\"setVariable\"")
   assertTrue "setVariable reports updated value"
     (stdout.contains "\"value\":\"10\"")
+  assertTrue "locals setVariable response is scalar (variablesReference = 0)"
+    (appearsBefore stdout "\"request_seq\":5" "\"variablesReference\":0" &&
+      appearsBefore stdout "\"variablesReference\":0" "\"request_seq\":6")
   assertTrue "second evaluate response present"
     (stdout.contains "\"request_seq\":6" && stdout.contains "\"command\":\"evaluate\"")
   assertTrue "second evaluate observes mutation"
@@ -350,6 +356,9 @@ def testToyDapEvaluateAndSetVariableAcrossFrames : IO Unit := do
     (stdout.contains "\"request_seq\":8" &&
       stdout.contains "\"command\":\"setVariable\"" &&
       stdout.contains "\"value\":\"10\"")
+  assertTrue "setVariable caller-frame response is scalar (variablesReference = 0)"
+    (appearsBefore stdout "\"request_seq\":8" "\"variablesReference\":0" &&
+      appearsBefore stdout "\"variablesReference\":0" "\"request_seq\":9")
   assertTrue "frame 1 evaluate observes caller mutation"
     (stdout.contains "\"request_seq\":9" &&
       stdout.contains "\"result\":\"13\"")

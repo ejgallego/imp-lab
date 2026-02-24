@@ -547,7 +547,8 @@ def setVariable
       throw s!"Unsupported variablesReference: {variablesReference}"
   let data := { data with session, lastException? := none }
   let store := putSessionData store sessionId data
-  pure (store, { value := toString value, variablesReference })
+  -- Return a scalar result: the updated variable value itself is not expandable.
+  pure (store, { value := toString value })
 
 def exceptionInfo (store : SessionStore) (sessionId : Nat) : Except String ExceptionInfoResponse := do
   let data ← getSessionData store sessionId

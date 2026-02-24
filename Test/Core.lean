@@ -660,9 +660,16 @@ def testDebugCoreSetVariableHeap : IO Unit := do
   let sessionId := launch.sessionId
   let (store2, setHeap) ← expectCore "setVariable heap counter" <| ImpLab.setVariable store1 sessionId 2 "counter" "7"
   assertEq "setVariable heap response value" setHeap.value "7"
+  assertEq "setVariable heap response variablesReference" setHeap.variablesReference 0
   let heapVars ← expectCore "setVariable heap variables" <| ImpLab.variables store2 sessionId 2
   assertTrue "setVariable heap updated counter"
     (heapVars.variables.any fun v => v.name == "counter" && v.value == "7")
+  let setMissingHeap := ImpLab.setVariable store2 sessionId 2 "missing" "1"
+  match setMissingHeap with
+  | .ok _ =>
+    throw <| IO.userError "setVariable should reject unknown heap variable names"
+  | .error err =>
+    assertTrue "setVariable unknown heap variable error" (err.contains "Unknown variable")
 
 def testDebugCoreStackFrames : IO Unit := do
   let info : ProgramInfo := imp%[
@@ -719,6 +726,7 @@ def testDebugCoreEvaluateAndSetVariable : IO Unit := do
   assertEq "evaluate infix result" evalExpr.result "7"
   let (store3, setVar) ← expectCore "setVariable x" <| ImpLab.setVariable store2 sessionId 1 "x" "10"
   assertEq "setVariable response value" setVar.value "10"
+  assertEq "setVariable response variablesReference" setVar.variablesReference 0
   let evalAfterSet ← expectCore "evaluate after setVariable" <| ImpLab.evaluate store3 sessionId "x * 2"
   assertEq "evaluate after setVariable result" evalAfterSet.result "20"
   let vars ← expectCore "variables after setVariable" <| ImpLab.variables store3 sessionId 1
@@ -769,6 +777,7 @@ def testDebugCoreEvaluateAndSetVariableAcrossFrames : IO Unit := do
   let (store6, setCallerLocal) ←
     expectCore "evaluate frames set caller local" <| ImpLab.setVariable store5 sessionId 3 "outerLocal" "20"
   assertEq "evaluate frames set caller local value" setCallerLocal.value "20"
+  assertEq "evaluate frames set caller local variablesReference" setCallerLocal.variablesReference 0
   let evalOuterLocalAfter ← expectCore "evaluate frames caller local after set" <| ImpLab.evaluate store6 sessionId "outerLocal" 1
   assertEq "evaluate frames caller local after set value" evalOuterLocalAfter.result "20"
   let evalInnerXAfter ← expectCore "evaluate frames inner x after caller set" <| ImpLab.evaluate store6 sessionId "x" 0

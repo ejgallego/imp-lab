@@ -7,12 +7,14 @@ Stable architecture guardrails and review policy live in:
 
 ## Active priorities
 
-1. Add DAP `evaluate` with frame-aware expression evaluation.
-Context: this is high demo impact (`REPL`, hover, watch) and unlocks interactive inspections.
-2. Add DAP `setVariable` for local variable mutation during a stop.
-Context: this pairs naturally with `evaluate` and demonstrates live debugging workflows.
-3. Build a deterministic DAP showcase scenario pack for demos.
+1. Build a deterministic DAP showcase scenario pack for demos.
 Context: feature-complete demos need scripted examples that exercise each capability reliably.
+2. Keep fixture auto-launch/export wiring stable for `examples/Main.lean`.
+Context: demo/debug sessions should always use a coherent `source` + generated `ProgramInfo` pair.
+3. Add an optional launch/task declaration variable (default `ImpLab.Lang.Examples.mainProgram`).
+Context: preserve the stable default fixture while enabling explicit alternate entrypoints without config drift.
+4. Expand expression support in `evaluate` while preserving deterministic errors.
+Context: current parser intentionally supports a compact expression subset.
 
 ## New features
 
@@ -20,8 +22,8 @@ Context: feature-complete demos need scripted examples that exercise each capabi
   - Support `context` values (`repl`, `hover`, `watch`) with stable response payloads.
   - Evaluate against selected frame state and return readable result strings.
 - `setVariable`:
-  - Update locals in the selected stack frame.
-  - Return updated value metadata in a DAP-compatible shape.
+  - Update either locals or heap depending on scope reference.
+  - Return scalar value metadata (`variablesReference = 0`) to avoid duplicate expandable trees in clients.
 - Breakpoint richness:
   - Conditional breakpoints.
   - Hit-count breakpoints.
