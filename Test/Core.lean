@@ -648,6 +648,22 @@ def testDebugCoreHeapScopeInCallee : IO Unit := do
   assertTrue "core heap callee vars include counter"
     (heapVars.variables.any fun v => v.name == "counter" && v.value == "9")
 
+def testDebugCoreSetVariableHeap : IO Unit := do
+  let info : ProgramInfo := imp%[
+    global counter := 0,
+    def main() := {
+      let one := 1
+    }
+  ]
+  let store0 : SessionStore := {}
+  let (store1, launch) ← expectCore "setVariable heap launch" <| ImpLab.launchFromProgramInfo store0 info true #[]
+  let sessionId := launch.sessionId
+  let (store2, setHeap) ← expectCore "setVariable heap counter" <| ImpLab.setVariable store1 sessionId 2 "counter" "7"
+  assertEq "setVariable heap response value" setHeap.value "7"
+  let heapVars ← expectCore "setVariable heap variables" <| ImpLab.variables store2 sessionId 2
+  assertTrue "setVariable heap updated counter"
+    (heapVars.variables.any fun v => v.name == "counter" && v.value == "7")
+
 def testDebugCoreStackFrames : IO Unit := do
   let info : ProgramInfo := imp%[
     def addMul(x, y) := {
@@ -751,7 +767,7 @@ def testDebugCoreEvaluateAndSetVariableAcrossFrames : IO Unit := do
   | .error err =>
     assertTrue "evaluate callee missing caller-local" (err.contains "Unknown variable")
   let (store6, setCallerLocal) ←
-    expectCore "evaluate frames set caller local" <| ImpLab.setVariable store5 sessionId 2 "outerLocal" "20"
+    expectCore "evaluate frames set caller local" <| ImpLab.setVariable store5 sessionId 3 "outerLocal" "20"
   assertEq "evaluate frames set caller local value" setCallerLocal.value "20"
   let evalOuterLocalAfter ← expectCore "evaluate frames caller local after set" <| ImpLab.evaluate store6 sessionId "outerLocal" 1
   assertEq "evaluate frames caller local after set value" evalOuterLocalAfter.result "20"
@@ -946,6 +962,7 @@ def runCoreTests : IO Unit := do
   testDebugCoreFlow
   testDebugCoreHeapScope
   testDebugCoreHeapScopeInCallee
+  testDebugCoreSetVariableHeap
   testDebugCoreStackFrames
   testDebugCoreEvaluateAndSetVariable
   testDebugCoreEvaluateAndSetVariableAcrossFrames

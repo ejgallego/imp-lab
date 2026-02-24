@@ -348,6 +348,7 @@ private def handleSetVariable (stdout : IO.FS.Stream) (stRef : IO.Ref AdapterSta
     (req : DapRequest) : IO Unit := do
   let args := requestArgs req
   let sessionId ← requireSessionId stRef args
+  -- `variablesReference` can refer to either a locals scope or a heap scope.
   let variablesReference ←
     match (args.getObjValAs? Nat "variablesReference").toOption with
     | some variablesReference => pure variablesReference

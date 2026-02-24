@@ -432,11 +432,33 @@ def stackTrace
     { stackFrames := fullFrames.extract start stop
       totalFrames := fullFrames.size }
 
+/--
+Encode `(frameId, locals)` into one DAP `variablesReference`.
+We keep this stateless so transports do not need a per-session reference table.
+-/
 private def localsReference (frameId : Nat) : Nat :=
   frameId * 2 + 1
 
+/--
+Encode `(frameId, heap)` into one DAP `variablesReference`.
+Odd refs are locals, even refs are heap.
+-/
 private def heapReference (frameId : Nat) : Nat :=
   frameId * 2 + 2
+
+/-- Decode a locals reference; returns `none` when the reference is not locals. -/
+private def localsFrameId? (variablesReference : Nat) : Option Nat :=
+  if variablesReference != 0 && variablesReference % 2 = 1 then
+    some ((variablesReference - 1) / 2)
+  else
+    none
+
+/-- Decode a heap reference; returns `none` when the reference is not heap. -/
+private def heapFrameId? (variablesReference : Nat) : Option Nat :=
+  if variablesReference != 0 && variablesReference % 2 = 0 then
+    some ((variablesReference - 2) / 2)
+  else
+    none
 
 def scopes (store : SessionStore) (sessionId : Nat) (frameId : Nat := 0) : Except String ScopesResponse := do
   let data ← getSessionData store sessionId
@@ -457,8 +479,7 @@ def variables
   ensureControllable data sessionId
   if variablesReference = 0 then
     pure { variables := #[] }
-  else if variablesReference % 2 = 1 then
-    let frameId := (variablesReference - 1) / 2
+  else if let some frameId := localsFrameId? variablesReference then
     match stackFrameAt? data.session frameId with
     | none =>
       pure { variables := #[] }
@@ -467,8 +488,7 @@ def variables
         frame.env.toArray.map fun (name, value) =>
           { name, value := toString value : VariableView }
       pure { variables }
-  else
-    let frameId := (variablesReference - 2) / 2
+  else if let some frameId := heapFrameId? variablesReference then
     match stackFrameAt? data.session frameId with
     | none =>
       pure { variables := #[] }
@@ -477,6 +497,8 @@ def variables
         data.session.heapBindings.map fun (name, value) =>
           { name, value := toString value : VariableView }
       pure { variables }
+  else
+    pure { variables := #[] }
 
 def evaluate
     (store : SessionStore)
@@ -499,17 +521,33 @@ def setVariable
   ensureControllable data sessionId
   if variablesReference = 0 then
     throw "setVariable requires variablesReference > 0"
-  let frameId := variablesReference - 1
-  let frame ← requireStackFrame data.session frameId
-  if (frame.env.find? name).isNone then
-    throw s!"Unknown variable '{name}' in selected frame"
-  let value ← evalExpression frame.env valueExpression
-  let session ←
-    updateFrameEnv data.session frameId fun env =>
-      pure <| env.insert name value
+  let (session, value) ←
+    if let some frameId := localsFrameId? variablesReference then
+      -- Local variable mutation is frame-scoped.
+      let frame ← requireStackFrame data.session frameId
+      if (frame.env.find? name).isNone then
+        throw s!"Unknown variable '{name}' in selected frame"
+      let value ← evalExpression frame.env valueExpression
+      let session ←
+        updateFrameEnv data.session frameId fun env =>
+          pure <| env.insert name value
+      pure (session, value)
+    else if let some frameId := heapFrameId? variablesReference then
+      -- Heap mutation is global, but expression evaluation still uses the selected frame env.
+      let frame ← requireStackFrame data.session frameId
+      let session := data.session.normalize
+      let some ctx := session.current?
+        | throw "Session has no active frame"
+      if (ctx.heap.find? name).isNone then
+        throw s!"Unknown variable '{name}' in heap"
+      let value ← evalExpression frame.env valueExpression
+      let updatedCtx : Context := { ctx with heap := ctx.heap.insert name value }
+      pure (updateSessionContext session updatedCtx, value)
+    else
+      throw s!"Unsupported variablesReference: {variablesReference}"
   let data := { data with session, lastException? := none }
   let store := putSessionData store sessionId data
-  pure (store, { value := toString value })
+  pure (store, { value := toString value, variablesReference })
 
 def exceptionInfo (store : SessionStore) (sessionId : Nat) : Except String ExceptionInfoResponse := do
   let data ← getSessionData store sessionId

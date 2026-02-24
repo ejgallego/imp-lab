@@ -226,6 +226,27 @@ def testToyDapScopesExposeHeap : IO Unit := do
   assertTrue "heap variables include declared global"
     (stdout.contains "\"name\":\"counter\"" && stdout.contains "\"value\":\"0\"")
 
+def testToyDapSetVariableHeap : IO Unit := do
+  let stdinPayload :=
+    String.intercalate ""
+      [ encodeDapRequest 1 "initialize",
+        encodeDapRequest 2 "launch" <| launchArgsWithGlobals true,
+        encodeDapRequest 3 "setVariable" <| Json.mkObj
+          [ ("variablesReference", toJson (2 : Nat)),
+            ("name", toJson "counter"),
+            ("value", toJson "7") ],
+        encodeDapRequest 4 "variables" <| Json.mkObj [("variablesReference", toJson (2 : Nat))],
+        encodeDapRequest 5 "disconnect" ]
+  let stdout ← runToyDapPayload "toydap.setvariable.heap" stdinPayload
+  assertTrue "heap setVariable response present"
+    (stdout.contains "\"request_seq\":3" && stdout.contains "\"command\":\"setVariable\"")
+  assertTrue "heap setVariable reports updated value"
+    (stdout.contains "\"value\":\"7\"")
+  assertTrue "heap variables reflect updated value"
+    (stdout.contains "\"request_seq\":4" &&
+      stdout.contains "\"name\":\"counter\"" &&
+      stdout.contains "\"value\":\"7\"")
+
 def testToyDapNextStepsOverCall : IO Unit := do
   let stdinPayload :=
     String.intercalate ""
@@ -310,7 +331,7 @@ def testToyDapEvaluateAndSetVariableAcrossFrames : IO Unit := do
           [ ("expression", toJson "seed"),
             ("frameId", toJson (1 : Nat)) ],
         encodeDapRequest 8 "setVariable" <| Json.mkObj
-          [ ("variablesReference", toJson (2 : Nat)),
+          [ ("variablesReference", toJson (3 : Nat)),
             ("name", toJson "seed"),
             ("value", toJson "10") ],
         encodeDapRequest 9 "evaluate" <| Json.mkObj
@@ -513,6 +534,7 @@ def runTransportTests : IO Unit := do
   testToyDapContinueEventOrder
   testToyDapStepInOutProtocol
   testToyDapScopesExposeHeap
+  testToyDapSetVariableHeap
   testToyDapNextStepsOverCall
   testToyDapNextCanStopAtCalleeBreakpoint
   testToyDapEvaluateAndSetVariable
