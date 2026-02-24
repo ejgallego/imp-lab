@@ -5,7 +5,7 @@
       "name": "ImpLab Toy DAP (auto-export ProgramInfo)",
       "type": "lean-toy-dap",
       "request": "launch",
-      "source": "${workspaceFolder}/examples/Main.lean",
+      "source": "${file}",
       "stopOnEntry": true,
       "preLaunchTask": "Generate ImpLab ProgramInfo"
     },

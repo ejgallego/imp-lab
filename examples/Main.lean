@@ -14,6 +14,7 @@ open ImpLab
 
 def mainProgram : ProgramInfo := imp%[
   global lastOut := 0,
+  global uh := 1,
   def bump(x) := {
     let one := 1,
     let out := add x one,
@@ -21,8 +22,8 @@ def mainProgram : ProgramInfo := imp%[
   },
   def scaleAndShift(x, factor) := {
     let scaled := mul x factor,
-    let uh := 1,
-    let mayfail := div scaled uh,
+    let den := get uh,
+    let mayfail := div scaled den,
     let shift := 2,
     let out := add scaled shift,
     return out

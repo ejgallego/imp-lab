@@ -4,14 +4,10 @@
     {
       "label": "Generate ImpLab ProgramInfo",
       "type": "process",
-      "command": "lake",
+      "command": "bash",
       "args": [
-        "exe",
-        "dap-export",
-        "--decl",
-        "ImpLab.Lang.Examples.mainProgram",
-        "--out",
-        ".dap/programInfo.generated.json"
+        "-lc",
+        "set -euo pipefail; src=\"${file}\"; dir=\"$(dirname \"$src\")\"; while [ \"$dir\" != \"/\" ] && [ ! -f \"$dir/lakefile.lean\" ] && [ ! -f \"$dir/lakefile.toml\" ]; do dir=\"$(dirname \"$dir\")\"; done; if [ ! -f \"$dir/lakefile.lean\" ] && [ ! -f \"$dir/lakefile.toml\" ]; then echo \"Could not locate lakefile from active file: $src\" >&2; exit 1; fi; cd \"$dir\"; lake exe dap-export --decl ImpLab.Lang.Examples.mainProgram --out .dap/programInfo.generated.json"
       ],
       "group": "build",
       "problemMatcher": [],

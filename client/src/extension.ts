@@ -49,6 +49,46 @@ class LeanToyDebugConfigurationProvider implements vscode.DebugConfigurationProv
         return JSON.parse(raw)
     }
 
+    private resolveProjectRootFromSource(sourcePath: string): string | undefined {
+        let dir = path.dirname(sourcePath)
+        while (true) {
+            const hasLakefile = fs.existsSync(path.join(dir, 'lakefile.lean')) || fs.existsSync(path.join(dir, 'lakefile.toml'))
+            if (hasLakefile) {
+                return dir
+            }
+            const parent = path.dirname(dir)
+            if (parent === dir) {
+                return undefined
+            }
+            dir = parent
+        }
+    }
+
+    private resolveGeneratedProgramInfoPaths(
+        folder: vscode.WorkspaceFolder | undefined,
+        config: vscode.DebugConfiguration,
+    ): string[] {
+        const paths: string[] = []
+        const pushUnique = (p: string | undefined) => {
+            if (!p) {
+                return
+            }
+            if (!paths.includes(p)) {
+                paths.push(p)
+            }
+        }
+
+        const workspaceRoot = folder?.uri.fsPath ?? vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
+        const source = typeof config.source === 'string' ? config.source : undefined
+        const sourcePath = source ? path.resolve(source) : undefined
+        const sourceProjectRoot = sourcePath ? this.resolveProjectRootFromSource(sourcePath) : undefined
+
+        pushUnique(sourceProjectRoot ? path.join(sourceProjectRoot, '.dap', 'programInfo.generated.json') : undefined)
+        pushUnique(workspaceRoot ? path.join(workspaceRoot, '.dap', 'programInfo.generated.json') : undefined)
+
+        return paths
+    }
+
     resolveDebugConfiguration(
         folder: vscode.WorkspaceFolder | undefined,
         config: vscode.DebugConfiguration,
@@ -69,16 +109,13 @@ class LeanToyDebugConfigurationProvider implements vscode.DebugConfigurationProv
             }
         }
         if (!config.programInfo) {
-            const workspaceRoot = folder?.uri.fsPath ?? vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
-            const generatedPath = workspaceRoot
-                ? path.join(workspaceRoot, '.dap', 'programInfo.generated.json')
-                : undefined
-            if (generatedPath) {
+            for (const generatedPath of this.resolveGeneratedProgramInfoPaths(folder, config)) {
                 try {
                     const loaded = this.tryLoadJson(generatedPath)
                     if (loaded !== undefined) {
                         config.programInfo = loaded
                         this.output.appendLine(`[lean-toy-dap] launch.programInfo loaded from ${generatedPath}`)
+                        break
                     }
                 } catch (err) {
                     vscode.window.showErrorMessage(`lean-toy-dap: invalid JSON in ${generatedPath}`)
