@@ -14,6 +14,9 @@ structure DapCapabilities where
   supportsConfigurationDoneRequest : Bool := true
   supportsStepBack : Bool := true
   supportsRestartRequest : Bool := false
+  supportsEvaluateForHovers : Bool := true
+  supportsSetVariable : Bool := true
+  supportsExceptionInfoRequest : Bool := true
   deriving Inhabited, Repr, FromJson, ToJson
 
 def dapCapabilities : DapCapabilities :=

@@ -7,21 +7,68 @@ Stable architecture guardrails and review policy live in:
 
 ## Active priorities
 
-1. Remove remaining duplicated behavior between `ImpLab/Debugger/Widget/Server.lean` and `ImpLab/Debugger/DAP/Stdio.lean` by lifting semantics to `ImpLab/Debugger/Core.lean`.
-Context: both adapters still own overlapping request/validation/update patterns.
-2. Expand transport tests for lifecycle edge cases (invalid ordering, repeated terminate/disconnect).
-Context: current tests cover main happy paths plus selected ordering checks, but not the full invalid-ordering matrix.
-3. Strengthen multi-function source mapping checks for stack and breakpoint rendering.
-Context: mapping works for core scenarios, but we still need broader multi-function and cross-step coverage.
+1. Add DAP `evaluate` with frame-aware expression evaluation.
+Context: this is high demo impact (`REPL`, hover, watch) and unlocks interactive inspections.
+2. Add DAP `setVariable` for local variable mutation during a stop.
+Context: this pairs naturally with `evaluate` and demonstrates live debugging workflows.
+3. Build a deterministic DAP showcase scenario pack for demos.
+Context: feature-complete demos need scripted examples that exercise each capability reliably.
 
-## Open work queue
+## New features
+
+- `evaluate`:
+  - Support `context` values (`repl`, `hover`, `watch`) with stable response payloads.
+  - Evaluate against selected frame state and return readable result strings.
+- `setVariable`:
+  - Update locals in the selected stack frame.
+  - Return updated value metadata in a DAP-compatible shape.
+- Breakpoint richness:
+  - Conditional breakpoints.
+  - Hit-count breakpoints.
+  - Logpoints.
+- Exceptions as debug stops:
+  - `setExceptionBreakpoints`.
+  - `exceptionInfo`.
+  - `stopped` with `reason = "exception"` when runtime errors occur.
+- Function breakpoints:
+  - `setFunctionBreakpoints` resolved through `ProgramInfo` function names.
+- Source introspection:
+  - Status: deferred until we have stronger virtual/generated source use-cases.
+  - `loadedSources` request.
+  - `source` request for virtual/generated source text.
+- Stepping extensions:
+  - `stepInTargets`.
+  - Optional `restartFrame`.
+- Time-travel jumps:
+  - `gotoTargets`.
+  - `goto` backed by the trace/history cursor model.
+- Data breakpoints:
+  - Stop when selected locals change.
+
+## Robustness
 
 - Transport parity audit:
   - Inventory duplicated validation/dispatch helpers in `ImpLab/Debugger/DAP/Stdio.lean` and `ImpLab/Debugger/Widget/Server.lean`.
-  - Propose core-level helpers in `ImpLab/Debugger/Core.lean` for shared semantics.
-- Lifecycle ordering test expansion (`Test/Transport.lean`):
+  - Lift shared semantics into `ImpLab/Debugger/Core.lean`.
+- Lifecycle ordering matrix (`Test/Transport.lean`):
   - Add invalid-ordering cases (commands before `launch`, repeated `disconnect`, control after termination).
   - Add repeated terminal-event guards (no duplicate terminal transitions).
 - Source mapping matrix (`Test/Core.lean` + `Test/Transport.lean`):
   - Cover breakpoints and stack traces across multiple functions/call depths.
   - Confirm mapping stability across `stepIn`, `next`, `stepOut`, and `stepBack` transitions.
+- DAP payload and event invariants:
+  - Keep response/error shapes stable.
+  - Keep lifecycle event order coherent (`initialized`, `stopped`, `continued`, `terminated`).
+
+## Demo readiness
+
+- DAP showcase scenario pack:
+  - Add small programs that deterministically trigger each implemented DAP feature.
+  - Keep `examples/Main.lean` as default fixture while adding focused demo fixtures.
+- Demo runbook:
+  - Document a canonical walk-through sequence for VS Code.
+  - Include expected visible outcomes for each step.
+- Adapter demo narration:
+  - Emit useful `output` events during key transitions.
+- Docs synchronization:
+  - Keep `docs/debugger.md`, `client/README.md`, and this roadmap aligned with actual support.

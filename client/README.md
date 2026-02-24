@@ -67,11 +67,15 @@ Handled by `toydap`:
 - `initialize`
 - `launch`
 - `setBreakpoints`
+- `setExceptionBreakpoints`
 - `configurationDone`
 - `threads`
 - `stackTrace`
 - `scopes`
 - `variables`
+- `evaluate`
+- `setVariable`
+- `exceptionInfo`
 - `next`
 - `stepIn`
 - `stepOut`

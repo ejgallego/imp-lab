@@ -20,6 +20,8 @@ def mainProgram : ProgramInfo := imp%[
   },
   def scaleAndShift(x, factor) := {
     let scaled := mul x factor,
+    let uh := 1,
+    let mayfail := div scaled uh,
     let shift := 2,
     let out := add scaled shift,
     return out

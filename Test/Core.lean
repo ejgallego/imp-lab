@@ -534,6 +534,187 @@ def testDebugCoreStackFrames : IO Unit := do
   assertTrue "stack frames caller vars include a"
     (varsCaller.variables.any fun v => v.name == "a" && v.value == "2")
 
+def testDebugCoreEvaluateAndSetVariable : IO Unit := do
+  let info : ProgramInfo := imp%[
+    def main() := {
+      let x := 5,
+      let y := 3,
+      let z := add x y
+    }
+  ]
+  let store0 : SessionStore := {}
+  let (store1, launch) ← expectCore "evaluate launch" <| ImpLab.launchFromProgramInfo store0 info true #[]
+  let sessionId := launch.sessionId
+  let (store2, _) ← expectCore "evaluate step to initialize x" <| ImpLab.next store1 sessionId
+  let evalX ← expectCore "evaluate x" <| ImpLab.evaluate store2 sessionId "x"
+  assertEq "evaluate variable result" evalX.result "5"
+  let evalExpr ← expectCore "evaluate infix expression" <| ImpLab.evaluate store2 sessionId "x + 2"
+  assertEq "evaluate infix result" evalExpr.result "7"
+  let (store3, setVar) ← expectCore "setVariable x" <| ImpLab.setVariable store2 sessionId 1 "x" "10"
+  assertEq "setVariable response value" setVar.value "10"
+  let evalAfterSet ← expectCore "evaluate after setVariable" <| ImpLab.evaluate store3 sessionId "x * 2"
+  assertEq "evaluate after setVariable result" evalAfterSet.result "20"
+  let vars ← expectCore "variables after setVariable" <| ImpLab.variables store3 sessionId 1
+  assertTrue "setVariable updates locals view"
+    (vars.variables.any fun v => v.name == "x" && v.value == "10")
+  let setMissing := ImpLab.setVariable store3 sessionId 1 "missing" "1"
+  match setMissing with
+  | .ok _ =>
+    throw <| IO.userError "setVariable should reject unknown variable names"
+  | .error err =>
+    assertTrue "setVariable unknown variable error" (err.contains "Unknown variable")
+
+def testDebugCoreEvaluateAndSetVariableAcrossFrames : IO Unit := do
+  let info : ProgramInfo := imp%[
+    def inner(x) := {
+      let one := 1,
+      let out := add x one,
+      return out
+    },
+    def outer(x) := {
+      let outerLocal := 10,
+      let y := call inner(x),
+      let out := add y outerLocal,
+      return out
+    },
+    def main() := {
+      let x := 2,
+      let out := call outer(x)
+    }
+  ]
+  let store0 : SessionStore := {}
+  let (store1, launch) ← expectCore "evaluate frames launch" <| ImpLab.launchFromProgramInfo store0 info true #[]
+  let sessionId := launch.sessionId
+  let (store2, _) ← expectCore "evaluate frames main step 1" <| ImpLab.stepIn store1 sessionId
+  let (store3, _) ← expectCore "evaluate frames enter outer" <| ImpLab.stepIn store2 sessionId
+  let (store4, _) ← expectCore "evaluate frames initialize outerLocal" <| ImpLab.stepIn store3 sessionId
+  let (store5, _) ← expectCore "evaluate frames enter inner" <| ImpLab.stepIn store4 sessionId
+  let evalInnerX ← expectCore "evaluate frames inner x" <| ImpLab.evaluate store5 sessionId "x" 0
+  assertEq "evaluate frames inner x value" evalInnerX.result "2"
+  let evalOuterLocal ← expectCore "evaluate frames outer local" <| ImpLab.evaluate store5 sessionId "outerLocal" 1
+  assertEq "evaluate frames outer local value" evalOuterLocal.result "10"
+  let evalMissingInInner := ImpLab.evaluate store5 sessionId "outerLocal" 0
+  match evalMissingInInner with
+  | .ok _ =>
+    throw <| IO.userError "evaluate should fail when reading caller-local from callee frame"
+  | .error err =>
+    assertTrue "evaluate callee missing caller-local" (err.contains "Unknown variable")
+  let (store6, setCallerLocal) ←
+    expectCore "evaluate frames set caller local" <| ImpLab.setVariable store5 sessionId 2 "outerLocal" "20"
+  assertEq "evaluate frames set caller local value" setCallerLocal.value "20"
+  let evalOuterLocalAfter ← expectCore "evaluate frames caller local after set" <| ImpLab.evaluate store6 sessionId "outerLocal" 1
+  assertEq "evaluate frames caller local after set value" evalOuterLocalAfter.result "20"
+  let evalInnerXAfter ← expectCore "evaluate frames inner x after caller set" <| ImpLab.evaluate store6 sessionId "x" 0
+  assertEq "evaluate frames inner x unchanged" evalInnerXAfter.result "2"
+
+def testDebugCoreEvaluateAndSetVariableNegativePaths : IO Unit := do
+  let info : ProgramInfo := imp%[
+    def main() := {
+      let x := 5,
+      let y := 3
+    }
+  ]
+  let store0 : SessionStore := {}
+  let (store1, launch) ← expectCore "evaluate negative launch" <| ImpLab.launchFromProgramInfo store0 info true #[]
+  let sessionId := launch.sessionId
+  let (store2, _) ← expectCore "evaluate negative initialize x" <| ImpLab.stepIn store1 sessionId
+  let evalEmpty := ImpLab.evaluate store2 sessionId ""
+  match evalEmpty with
+  | .ok _ =>
+    throw <| IO.userError "evaluate should reject empty expressions"
+  | .error err =>
+    assertTrue "evaluate empty expression error" (err.contains "non-empty")
+  let evalUnknownVar := ImpLab.evaluate store2 sessionId "missing"
+  match evalUnknownVar with
+  | .ok _ =>
+    throw <| IO.userError "evaluate should reject unknown variables"
+  | .error err =>
+    assertTrue "evaluate unknown variable error" (err.contains "Unknown variable")
+  let evalBadFrame := ImpLab.evaluate store2 sessionId "x" 99
+  match evalBadFrame with
+  | .ok _ =>
+    throw <| IO.userError "evaluate should reject unknown frame ids"
+  | .error err =>
+    assertTrue "evaluate unknown frame id error" (err.contains "Unknown stack frame id")
+  let setMissingRef := ImpLab.setVariable store2 sessionId 0 "x" "10"
+  match setMissingRef with
+  | .ok _ =>
+    throw <| IO.userError "setVariable should require variablesReference > 0"
+  | .error err =>
+    assertTrue "setVariable missing variablesReference error" (err.contains "variablesReference")
+  let setBadFrame := ImpLab.setVariable store2 sessionId 100 "x" "10"
+  match setBadFrame with
+  | .ok _ =>
+    throw <| IO.userError "setVariable should reject unknown frame ids"
+  | .error err =>
+    assertTrue "setVariable unknown frame id error" (err.contains "Unknown stack frame id")
+  let setBadExpr := ImpLab.setVariable store2 sessionId 1 "x" "missing + 1"
+  match setBadExpr with
+  | .ok _ =>
+    throw <| IO.userError "setVariable should reject invalid value expressions"
+  | .error err =>
+    assertTrue "setVariable invalid value expression error" (err.contains "Unknown variable")
+
+def testDebugCoreExceptionBreakpointsAndInfo : IO Unit := do
+  let info : ProgramInfo := imp%[
+    def main() := {
+      let x := 10,
+      let y := 0,
+      let z := div x y
+    }
+  ]
+  let store0 : SessionStore := {}
+  let (store1, launch) ← expectCore "exception launch" <| ImpLab.launchFromProgramInfo store0 info true #[]
+  let sessionId := launch.sessionId
+  let (store2, setExceptions) ←
+    expectCore "exception enable exception breakpoints" <| ImpLab.setExceptionBreakpoints store1 sessionId #["runtime"]
+  assertEq "exception breakpoints enabled" setExceptions.enabled true
+  let (store3, _) ← expectCore "exception step x" <| ImpLab.stepIn store2 sessionId
+  let (store4, _) ← expectCore "exception step y" <| ImpLab.stepIn store3 sessionId
+  let (store5, exceptionStop) ← expectCore "exception stop at div" <| ImpLab.stepIn store4 sessionId
+  assertEq "exception stop reason" exceptionStop.stopReason "exception"
+  assertEq "exception stop terminated false" exceptionStop.terminated false
+  assertTrue "exception stop description mentions divide by zero"
+    ((exceptionStop.description?.map (·.contains "division by zero")).getD false)
+  let infoResp ← expectCore "exception info available" <| ImpLab.exceptionInfo store5 sessionId
+  assertEq "exception info id" infoResp.exceptionId "divByZero"
+  assertTrue "exception info description mentions divide by zero"
+    ((infoResp.description?.map (·.contains "division by zero")).getD false)
+  let (store6, setExceptionsOff) ←
+    expectCore "exception disable breakpoints" <| ImpLab.setExceptionBreakpoints store5 sessionId #[]
+  assertEq "exception breakpoints disabled" setExceptionsOff.enabled false
+  let nextAfterDisable := ImpLab.stepIn store6 sessionId
+  match nextAfterDisable with
+  | .ok _ =>
+    throw <| IO.userError "stepIn should fail with debug error when exception breakpoints are disabled"
+  | .error err =>
+    assertTrue "disabled exception breakpoints returns debug error"
+      (err.contains "Debug operation failed")
+
+def testDebugCoreExceptionStopKeepsFailureLocationAfterContinue : IO Unit := do
+  let info : ProgramInfo := imp%[
+    def fail(x) := {
+      let zero := 0,
+      let out := div x zero,
+      return out
+    },
+    def main() := {
+      let seed := 8,
+      let out := call fail(seed)
+    }
+  ]
+  let store0 : SessionStore := {}
+  let (store1, launch) ← expectCore "exception location launch" <| ImpLab.launchFromProgramInfo store0 info true #[]
+  let sessionId := launch.sessionId
+  let (store2, _) ←
+    expectCore "exception location enable exception breakpoints" <| ImpLab.setExceptionBreakpoints store1 sessionId #["runtime"]
+  let (store3, stop) ← expectCore "exception location continue to failure" <| ImpLab.continueExecution store2 sessionId
+  assertEq "exception location stop reason" stop.stopReason "exception"
+  let stack ← expectCore "exception location stack after continue" <| ImpLab.stackTrace store3 sessionId
+  assertEq "exception location stack depth" stack.totalFrames 2
+  assertTrue "exception location top frame is failing callee"
+    ((stack.stackFrames[0]?.map (·.name.contains "fail")).getD false)
+
 def testDebugCoreTerminatedGuards : IO Unit := do
   let info : ProgramInfo := imp%[
     def main() := {
@@ -608,6 +789,11 @@ def runCoreTests : IO Unit := do
   testProgramInfoValidation
   testDebugCoreFlow
   testDebugCoreStackFrames
+  testDebugCoreEvaluateAndSetVariable
+  testDebugCoreEvaluateAndSetVariableAcrossFrames
+  testDebugCoreEvaluateAndSetVariableNegativePaths
+  testDebugCoreExceptionBreakpointsAndInfo
+  testDebugCoreExceptionStopKeepsFailureLocationAfterContinue
   testDebugCoreTerminatedGuards
   testDebugCoreRejectsInvalidProgramInfo
   testResolveCandidateDeclNames
