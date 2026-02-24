@@ -1,6 +1,6 @@
 name = "dap"
 version = "0.1.0"
-defaultTargets = ["dap", "toydap", "dap-tests"]
+defaultTargets = ["toydap", "dap-tests"]
 
 [[lean_lib]]
 name = "Dap"
@@ -12,17 +12,13 @@ name = "examples"
 name = "Test"
 
 [[lean_exe]]
-name = "dap"
-root = "Main"
-
-[[lean_exe]]
 name = "toydap"
-root = "ToyDap"
+root = "app.ToyDap"
 supportInterpreter = true
 
 [[lean_exe]]
 name = "dap-export"
-root = "ExportMain"
+root = "app.ExportMain"
 supportInterpreter = true
 
 [[lean_exe]]
