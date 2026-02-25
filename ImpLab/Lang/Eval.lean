@@ -272,4 +272,21 @@ def runFrom (program : Program) (start : Context := Context.initialForProgram pr
 def run (program : Program) : Except EvalError Context :=
   runFrom program
 
+def renderBindings (bindings : Array (String × Value)) : String :=
+  if bindings.isEmpty then
+    "(empty)"
+  else
+    String.intercalate ", " <| bindings.toList.map (fun (name, value) => s!"{name}={value}")
+
+def prettyRunResult (program : Program) : String :=
+  match run program with
+  | .ok ctx =>
+    String.intercalate "\n"
+      [ "Program finished successfully.",
+        s!"Location: {ctx.current.func} @ pc {ctx.current.pc}",
+        s!"Locals: {renderBindings ctx.bindings}",
+        s!"Heap: {renderBindings ctx.heapBindings}" ]
+  | .error err =>
+    s!"Program failed: {err}"
+
 end ImpLab

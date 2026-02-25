@@ -38,14 +38,14 @@ def mainProgram : ProgramInfo := imp%[
   }
 ]
 
-#eval run mainProgram
+#eval IO.println (prettyRunResult mainProgram)
 
 def sampleTraceProps : TraceWidgetInitProps :=
   { programInfo := mainProgram }
-
 def sampleTracePropsJson : Lean.Json :=
   Lean.toJson sampleTraceProps
 
 end ImpLab.Lang.Examples
 
-#widget ImpLab.traceExplorerWidget with ImpLab.Lang.Examples.sampleTracePropsJson
+#widget ImpLab.traceExplorerWidget
+        with ImpLab.Lang.Examples.sampleTracePropsJson
