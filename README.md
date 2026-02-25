@@ -2,11 +2,18 @@
 
 ImpLab is a Lean playground for programming language modeling and teaching-oriented tooling.
 
-Today the core feature is the debugger, available in two modes: as a [Debug Adapter Protocol (DAP)](https://microsoft.github.io/debug-adapter-protocol/) server (`toydap`) for editor integration, and as an in-editor Lean UI built with [ProofWidgets](https://github.com/leanprover-community/ProofWidgets4).
+Today the core feature is the debugger, available in two modes:
 
-## Run the debugger
+- as a [Debug Adapter Protocol (DAP)](https://microsoft.github.io/debug-adapter-protocol/) server (`toydap`) for editor integration, and,
+- as an in-editor Lean UI built with [ProofWidgets](https://github.com/leanprover-community/ProofWidgets4).
 
-### 1) Build everything once
+ImpLab was built using [Lean](https://lean-lang.org/) and [OpenAI's Codex](https://openai.com/codex/)
+
+**Note**: ImpLab is not production ready! It is designed to demonstrate and explore Lean’s capabilities. The code is a prototype and has not undergone the rigorous review and testing required for production use.
+
+## Run the Imp debugger
+
+### 1) Build the project
 
 ```bash
 lake build
@@ -26,15 +33,15 @@ code client
 - `Run ImpLab Toy DAP Extension (compile once)`
 
 3. In the Extension Development Host window:
-- open this repository,
+- open the folder at the root of this repository,
 - open `examples/Main.lean`,
 - run debug config `ImpLab Toy DAP (auto-export ProgramInfo)`.
 
 Notes:
-- The launch config auto-generates `.dap/programInfo.generated.json` using `dap-export`.
+- The launch config should auto-generate the debugger meta-data `.dap/programInfo.generated.json` using `dap-export` automatically.
 - The adapter binary is `toydap`.
 
-### 3) Run in Lean (ProofWidgets mode)
+### 3) Run in Lean (ProofWidgets mode, less involved, less features)
 
 1. Open `examples/Main.lean`.
 2. Ensure the Lean infoview is active.
