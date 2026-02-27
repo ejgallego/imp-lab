@@ -119,6 +119,13 @@ private def launchArgsWithGlobals (stopOnEntry : Bool) : Json :=
     [ ("programInfo", toJson globalProgramInfo),
       ("stopOnEntry", toJson stopOnEntry) ]
 
+private def launchArgsFromRef (stopOnEntry : Bool) : Json :=
+  Json.mkObj
+    [ ("programInfoRef", Json.mkObj
+      [ ("module", toJson "examples.Main"),
+        ("decl", toJson "Dap.Lang.Examples.mainProgram") ]),
+      ("stopOnEntry", toJson stopOnEntry) ]
+
 private def bumpEntryLine : Nat :=
   transportProgramInfo.locationToSourceLine { func := "bump", stmtLine := 1 }
 
@@ -146,6 +153,33 @@ def testToyDapProtocolSanity : IO Unit := do
     (stdout.contains "\"request_seq\":4" && stdout.contains "\"command\":\"next\"")
   assertTrue "disconnect response present"
     (stdout.contains "\"request_seq\":5" && stdout.contains "\"command\":\"disconnect\"")
+
+def testToyDapLaunchFromProgramInfoRef : IO Unit := do
+  let stdinPayload :=
+    String.intercalate ""
+      [ encodeDapRequest 1 "initialize",
+        encodeDapRequest 2 "launch" <| launchArgsFromRef true,
+        encodeDapRequest 3 "disconnect" ]
+  let stdout ← runToyDapPayload "toydap.launch.programinforef" stdinPayload
+  assertTrue "programInfoRef launch response present"
+    (stdout.contains "\"request_seq\":2" && stdout.contains "\"command\":\"launch\"")
+  if stdout.contains "\"success\":false" then
+    throw <| IO.userError s!"programInfoRef launch has an error response: {stdout}"
+
+def testToyDapLaunchFromProgramInfoRefRejectsUnknownModule : IO Unit := do
+  let stdinPayload :=
+    String.intercalate ""
+      [ encodeDapRequest 1 "initialize",
+        encodeDapRequest 2 "launch" <| Json.mkObj
+          [ ("programInfoRef", Json.mkObj
+            [ ("module", toJson "No.Such.Module"),
+              ("decl", toJson "mainProgram") ]),
+            ("stopOnEntry", toJson true) ],
+        encodeDapRequest 3 "disconnect" ]
+  let stdout ← runToyDapPayload "toydap.launch.programinforef.invalid.module" stdinPayload
+  assertTrue "invalid module launch request gets an error response"
+    (stdout.contains "\"request_seq\":2" &&
+      stdout.contains "Could not import module 'No.Such.Module'")
 
 def testToyDapBreakpointProtocol : IO Unit := do
   let stdinPayload :=
@@ -539,6 +573,8 @@ def testToyDapDisconnectCanTargetSessionId : IO Unit := do
 
 def runTransportTests : IO Unit := do
   testToyDapProtocolSanity
+  testToyDapLaunchFromProgramInfoRef
+  testToyDapLaunchFromProgramInfoRefRejectsUnknownModule
   testToyDapBreakpointProtocol
   testToyDapContinueEventOrder
   testToyDapStepInOutProtocol

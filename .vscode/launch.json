@@ -14,7 +14,8 @@
       "type": "lean-toy-dap",
       "request": "launch",
       "source": "${file}",
-      "stopOnEntry": true
+      "stopOnEntry": true,
+      "preLaunchTask": "Generate Toy DAP ProgramInfo"
     }
   ]
 }

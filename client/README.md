@@ -33,6 +33,7 @@ Launch payload:
 - `programInfo`: `ImpLab.ProgramInfo` JSON payload.
 - If omitted, the extension tries `${workspaceFolder}/.dap/programInfo.generated.json`.
 - The extension does not auto-load `client/programInfo.sample.json`; that file is only a reference shape.
+- Launch data comes from compiled `.olean` artifacts (via export), so unsaved or unbuilt Lean changes are not reflected.
 
 Adapter executable:
 - `toydapPath` (optional): explicit path to the `toydap` binary.

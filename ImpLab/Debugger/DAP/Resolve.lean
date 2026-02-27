@@ -10,12 +10,15 @@ open Lean
 
 namespace ImpLab
 
-def parseDeclName? (raw : String) : Option Name :=
+def parseName? (raw : String) : Option Name :=
   let parts := raw.trimAscii.toString.splitOn "." |>.filter (· != "")
   match parts with
   | [] => none
   | _ =>
     some <| parts.foldl Name.str Name.anonymous
+
+def parseDeclName? (raw : String) : Option Name :=
+  parseName? raw
 
 def isUnqualifiedName (n : Name) : Bool :=
   match n with
@@ -54,9 +57,9 @@ def resolveFirstDecl? (env : Environment) (candidates : Array Name) : Option Nam
 def renderCandidateDecls (candidates : Array Name) : String :=
   String.intercalate ", " <| candidates.toList.map (fun n => s!"'{n}'")
 
-def importProjectEnv : IO Environment := do
-  let candidates : Array (Array Name) :=
-    #[#[`Main, `ImpLab], #[`Main], #[`ImpLab]]
+private def importFirstAvailableEnv
+    (candidates : Array (Array Name))
+    (errMsg : String) : IO Environment := do
   let rec go (idx : Nat) : IO Environment := do
     if h : idx < candidates.size then
       let modules := candidates[idx]
@@ -66,7 +69,24 @@ def importProjectEnv : IO Environment := do
       catch _ =>
         go (idx + 1)
     else
-      throw <| IO.userError "Could not import project modules (`Main` or `ImpLab`) to resolve declaration"
+      throw <| IO.userError errMsg
   go 0
+
+def importProjectEnv : IO Environment := do
+  importFirstAvailableEnv
+    #[#[`Main, `ImpLab], #[`Main], #[`ImpLab]]
+    "Could not import project modules (`Main` or `ImpLab`) to resolve declaration"
+
+def importEnvForModule (moduleName : Name) : IO Environment := do
+  let candidates : Array (Array Name) :=
+    if moduleName == `ImpLab then
+      #[#[`ImpLab]]
+    else if moduleName == `Main then
+      #[#[`Main, `ImpLab], #[`Main], #[`ImpLab]]
+    else
+      #[#[moduleName, `ImpLab], #[moduleName]]
+  importFirstAvailableEnv
+    candidates
+    s!"Could not import module '{moduleName}' to resolve declaration"
 
 end ImpLab
